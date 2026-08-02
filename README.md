@@ -25,6 +25,7 @@ Claude Code를 "한 번의 대화를 잘 굴리는 도구"가 아니라 **작업
 | [`ex-05-10-book-writer-skill`](./ex-05-10-book-writer-skill) | book-writer 종합 사례 + 3 원리 매핑 | 두 버전의 `book-writer` 프론트매터를 발췌·diff하고 Pushy·Layer·Why-First 3 원리로 매핑한 뒤 본 저장소 스킬을 진단해 미니 템플릿까지 산출합니다. |
 | [`ex-05-11-with-without`](./ex-05-11-with-without) | With/Without 스킬 비교 1 사이클 | `csv-summary` 스킬 1건에 With/Without 를 동시 실행(`&`+`wait`)하고 `pass_rate`·`duration_ms`·`total_tokens` 3축으로 비교, 변별력 있는/없는 단언 반례까지 산출합니다. |
 | [`ex-05-12-antipatterns`](./ex-05-12-antipatterns) | 스킬 안티패턴 3종 진단 | 거대 SKILL.md / references 부재 / 이유 없는 규칙 3 안티패턴을 옮기고, `antipattern-detector` 가 의도 위반 3 샘플을 진단·심각도 라벨링합니다. |
+| [`ex-05-13-skill-md-reviewer`](./ex-05-13-skill-md-reviewer) | SKILL.md 실무 리뷰 스킬 | ex-05-05/09/12 진단 기준을 통합하고 공식 가이드로 보강한 reviewing-skill-md 스킬을 실제 SKILL.md 3종(sql-query·csv-summary·pr-review-orchestrator)에 적용해 리포트를 산출합니다. |
 | **6장 — PR 리뷰 오케스트레이션** | | |
 | [`ex-06-12-pr-review-skill-md`](./ex-06-12-pr-review-skill-md) | `pr-review-orchestrator` SKILL.md 실물 | 책 SKILL.md 전문을 `.claude/skills/pr-review-orchestrator/SKILL.md` 로 보존하고 4인 에이전트 stub과 dry-run 결과를 동봉합니다. |
 | [`ex-06-15-292-agent-incident`](./ex-06-15-292-agent-incident) | 292개 에이전트 사건 — 정량 검증 | 책의 채널 수 폭주 사례를 인용 + 정량 데이터 + 외부 자료 교차 검증 메모로 정리한 사례 노트입니다. |

@@ -19,11 +19,12 @@ line_count=$(wc -l < "$FILE" | tr -d ' ')
 word_count=$(wc -w < "$FILE" | tr -d ' ')
 
 # frontmatter 블록(첫 --- ~ 두 번째 --- 직전)만 추출한다.
-frontmatter=$(awk '/^---$/{c++; if(c==2) exit; next} c==1' "$FILE")
+# \r?: CRLF(Windows) 개행으로 작성된 SKILL.md에서도 "---" 구분선을 인식하기 위함.
+frontmatter=$(awk '/^---\r?$/{c++; if(c==2) exit; next} c==1' "$FILE")
 frontmatter_chars=$(printf '%s' "$frontmatter" | wc -m | tr -d ' ')
 
-name_value=$(printf '%s\n' "$frontmatter" | grep -m1 '^name:' | sed 's/^name: *//' || true)
-description_value=$(printf '%s\n' "$frontmatter" | grep -m1 '^description:' | sed 's/^description: *//' || true)
+name_value=$(printf '%s\n' "$frontmatter" | grep -m1 '^name:' | sed 's/^name: *//; s/\r$//' || true)
+description_value=$(printf '%s\n' "$frontmatter" | grep -m1 '^description:' | sed 's/^description: *//; s/\r$//' || true)
 
 # grep은 매치가 없으면 exit 1을 반환한다. set -o pipefail 아래서 파이프라인 전체가
 # 실패로 취급되어 set -e에 걸리므로, 매치 0건이 정상 케이스인 아래 항목들은 || true로 보호한다.

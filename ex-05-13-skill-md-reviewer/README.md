@@ -1,6 +1,6 @@
 # ex-05-13 — SKILL.md 실무 리뷰 스킬
 
-ex-05-05(분리 신호)·ex-05-09(컨텍스트 절약 3원칙)·ex-05-12(안티패턴 3종)의 진단 기준을 통합하고 Anthropic 공식 스킬 작성 가이드 항목을 보강해, 임의 프로젝트에 그대로 복사해 쓸 수 있는 실무용 SKILL.md 리뷰 스킬 `reviewing-skill-md`를 만들고 저장소 내 실제 SKILL.md 3종에 적용한다.
+ex-05-05(분리 신호)·ex-05-09(컨텍스트 절약 3원칙)·ex-05-12(안티패턴 3종)의 진단 기준을 통합하고 Anthropic 공식 스킬 작성 가이드 항목을 보강해, 임의 프로젝트에 그대로 복사해 쓸 수 있는 실무용 SKILL.md 리뷰 스킬 `reviewing-skill-md`를 만들고 저장소 내 실제 SKILL.md 3종에 적용한다 (synthesize).
 
 ## 실행
 `bash .claude/skills/reviewing-skill-md/scripts/collect-metrics.sh <SKILL.md 경로>`로 정량 지표를 뽑고, `reviewing-skill-md` 스킬을 호출해 리포트를 생성한다.

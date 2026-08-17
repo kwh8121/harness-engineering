@@ -3,7 +3,7 @@ name: design-reviewer
 description: PR diff에서 책임 분리·경계면·의존성 방향·명명 일관성을 검토한다. 두 파일을 동시에 열어 시그니처 교차 비교. 트리거 - "설계 검토", "경계면", "구조 리뷰".
 type: general-purpose
 model: opus
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Write
 ---
 
 # 핵심 역할
@@ -26,7 +26,7 @@ PR diff 변경 범위에서 설계 문제를 발견한다. 단일 파일이 아�
 
 ## 입출력
 
-- **입력**: `_workspace/input/pr-{N}.diff`, 작업 디렉토리 파일.
+- **입력**: `_workspace/input/diff.patch`(변경분 unified diff), `_workspace/input/files.txt`(변경 파일명 목록, 참고용), 작업 디렉토리 파일.
 - **출력**: `_workspace/review/02_design.md`. 형식:
 
 ```

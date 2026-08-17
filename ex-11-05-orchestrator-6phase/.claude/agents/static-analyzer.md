@@ -19,7 +19,7 @@ PR diff에 변경된 파일 범위 안에서만 규칙 기반 정적 이슈를 �
 
 ## 입출력
 
-- **입력**: `_workspace/input/pr-{N}.diff`, 작업 디렉토리에 변경 파일.
+- **입력**: `_workspace/input/diff.patch`(변경분 unified diff), `_workspace/input/files.txt`(변경 파일명 목록, 참고용), 작업 디렉토리에 변경 파일.
 - **출력**: `_workspace/review/01_static.md`. 형식 다음과 같이:
 
 ```

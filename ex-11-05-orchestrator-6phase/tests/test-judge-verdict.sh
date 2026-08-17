@@ -33,5 +33,12 @@ echo "dummy2" > "$work/_workspace/patches/bar.diff"
 result=$(cd "$work" && printf '이상한 응답, 형식 안 지킴\n' | bash "$SCRIPT" bar.diff 3)
 assert_eq "REJECTED" "$result" "judge-verdict: 형식 위반은 FAIL로 취급되어 3회차에 REJECTED"
 
+# 6. 빈 stdin, 3회차 -> 크래시 없이 REJECTED (set -e가 stdin 처리에서 멈추지 않음)
+echo "dummy3" > "$work/_workspace/patches/baz.diff"
+result=$(cd "$work" && printf '' | bash "$SCRIPT" baz.diff 3)
+exit_code=$?
+assert_exit_code 0 "$exit_code" "judge-verdict: 빈 stdin이어도 스크립트가 죽지 않고 정상 종료(exit 0)"
+assert_eq "REJECTED" "$result" "judge-verdict: 빈 stdin은 형식 위반으로 취급되어 3회차에 REJECTED"
+
 rm -rf "$work"
 report_and_exit

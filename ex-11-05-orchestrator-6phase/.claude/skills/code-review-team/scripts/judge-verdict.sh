@@ -10,7 +10,7 @@ ATTEMPT="$2"
 PATCH_DIR="_workspace/patches"
 
 response=$(cat)
-last_line=$(printf '%s\n' "$response" | grep -v '^[[:space:]]*$' | tail -n 1)
+last_line=$(printf '%s\n' "$response" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
 
 if [[ "$last_line" == "VERDICT: PASS"* ]]; then
     echo "PASS"

@@ -56,7 +56,7 @@ tools: Read, Grep, Glob, Edit, Write
 ## 에러 핸들링
 
 - 앞 3 보고서 중 하나라도 없음: 리더에게 입력 요청. 추측 patch 금지.
-- patch 디렉토리(`_workspace/patches/`) 부재: 빌더가 만들어줘야 함. Edit 시도 전 Glob으로 존재 확인.
+- patch 디렉토리(`_workspace/patches/`) 부재: 빌더가 만들어줘야 함. Write/Edit 시도 전 Glob으로 존재 확인.
 
 ## 자체 검증 체크리스트
 

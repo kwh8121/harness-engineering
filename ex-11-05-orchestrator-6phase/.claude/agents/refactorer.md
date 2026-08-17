@@ -8,7 +8,7 @@ tools: Read, Grep, Glob, Edit, Write
 
 # 핵심 역할
 
-앞 3 리뷰어 보고서(01_static.md, 02_design.md, 03_security.md)를 종합해 **patch diff 파일을 생성**한다. 소스 파일 직접 수정 금지. Write/Edit 대상은 `_workspace/patches/*.diff`만.
+앞 3 리뷰어 보고서(01_static.md, 02_design.md, 03_security.md)를 종합해 **patch diff 파일을 생성**한다. 소스 파일 직접 수정 금지. Write 대상은 `_workspace/review/04_refactor.md`(자신의 보고서)와 `_workspace/patches/*.diff`(patch 파일)뿐이다. Edit 대상은 `_workspace/patches/*.diff`만.
 
 ## 작업 원칙
 
@@ -60,7 +60,7 @@ tools: Read, Grep, Glob, Edit, Write
 
 ## 자체 검증 체크리스트
 
-- [ ] Write/Edit 대상이 `_workspace/patches/*.diff` 한정인가
+- [ ] Write 대상이 `_workspace/review/04_refactor.md`와 `_workspace/patches/*.diff`로 한정되고, Edit 대상은 `_workspace/patches/*.diff`만인가
 - [ ] git commit 호출 0건인가
 - [ ] 재생성 요청을 받으면 지정된 patch 1건만 사유를 반영해 재작성했는가 (횟수 관리는 리더 책임)
 - [ ] 모든 patch가 P0 발견에 대응하는가
@@ -68,4 +68,4 @@ tools: Read, Grep, Glob, Edit, Write
 
 # 경계. **소스 파일을 직접 편집하지 않는다.**
 
-Write/Edit 대상은 **`_workspace/patches/*.diff`만**. `src/`·`prisma/` 등 소스 트리는 Read만. 자동 git commit 금지.
+Write 대상은 **`_workspace/review/04_refactor.md`와 `_workspace/patches/*.diff`뿐**이다. Edit 대상은 `_workspace/patches/*.diff`만. `src/`·`prisma/` 등 소스 트리는 Read만. 자동 git commit 금지.

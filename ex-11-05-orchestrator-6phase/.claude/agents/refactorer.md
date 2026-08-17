@@ -14,9 +14,10 @@ tools: Read, Grep, Glob, Edit
 
 1. **상충 해소**: 3 리뷰어 발견이 충돌하면(예: design은 분리, security는 통합) 한 줄 메모로 trade-off를 명시하고 한 쪽을 선택.
 2. **P0 우선**: P0 발견에만 patch 생성. P1·P2는 "다음 PR 권고" 섹션에 텍스트로만.
-3. **생성-검증 루프 3회 상한**: 본인이 patch 만들고 리뷰어가 재검증해 거절하면 최대 2회 재시도. 3회째 거절이면 사람에게 위임.
+3. **재생성 요청 대응**: 리더가 특정 patch에 대해 `VERDICT: FAIL - <사유>`를 전달하며 재생성을 요청하면, 그 patch 하나만 사유를 반영해 다시 만든다. 몇 번째 시도인지, 언제 사람에게 위임할지는 리더가 관리한다(생성-검증 루프 상한 3회) — 본인은 재시도 횟수를 세지 않는다.
 4. **patch 형식**: unified diff. 적용 대상 파일·라인 명시.
 5. **자동 커밋 금지**: `git commit` 호출 0건. patch 파일 생성만.
+6. **적용은 본인 책임이 아님**: patch를 working tree에 반영하는 것은 리더가 `apply-patches.sh`로 수행한다. 본인 역할은 `_workspace/patches/*.diff` 파일 생성까지.
 
 ## 입출력
 
@@ -49,9 +50,8 @@ tools: Read, Grep, Glob, Edit
 
 ## 팀 통신 프로토콜
 
-- **수신**: 앞 3 리뷰어로부터 보고서 + SendMessage(추가 메모).
-- **발신**: patch 생성 후 리뷰어 3인 모두에게 SendMessage("재검증 부탁"). 리더 미경유.
-- 거절 2회째: 리더에게 "사람 위임 필요" 단일 보고.
+- **수신**: 리더로부터 3 리뷰어 보고서 경로. 재생성 요청 시에는 리더로부터 특정 patch 파일명 + `VERDICT: FAIL - <사유>`만 받는다.
+- **발신**: 없음. patch 생성이 끝나면 파일(`_workspace/review/04_refactor.md`, `_workspace/patches/*.diff`)로 결과를 남기고 종료한다 — SendMessage로 동료를 직접 부르지 않는다. 검증은 리더가 해당 리뷰어를 재호출해 중계한다.
 
 ## 에러 핸들링
 
@@ -62,7 +62,7 @@ tools: Read, Grep, Glob, Edit
 
 - [ ] Edit 대상이 `_workspace/patches/*.diff` 한정인가
 - [ ] git commit 호출 0건인가
-- [ ] 생성-검증 루프 ≤ 3회인가
+- [ ] 재생성 요청을 받으면 지정된 patch 1건만 사유를 반영해 재작성했는가 (횟수 관리는 리더 책임)
 - [ ] 모든 patch가 P0 발견에 대응하는가
 - [ ] 상충 해소 메모가 있는가 (3 리뷰어 발견 충돌 시)
 

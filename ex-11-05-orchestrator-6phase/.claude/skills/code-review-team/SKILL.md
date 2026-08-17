@@ -1,124 +1,60 @@
 ---
 name: code-review-team
-description: PR diff에 대해 정적분석·설계·보안 3 리뷰어 + 리팩토러 4인 팀을 운영한다. 트리거 - "코드 리뷰", "PR 리뷰", "리뷰 재실행", "다시 실행", "리뷰 보고서".
-allowed-tools: TeamCreate, AgentTool, TaskCreate, SendMessage, TeamDelete, Read, Write, Bash(gh pr diff, gh pr comment)
+description: PR diff 또는 로컬 git diff에 대해 정적분석·설계·보안 3 리뷰어 + 리팩토러 4인 팀을 운영한다. 트리거 - "코드 리뷰", "PR 리뷰", "리뷰 재실행", "다시 실행", "리뷰 보고서".
+allowed-tools: Agent, Bash(bash .claude/skills/code-review-team/scripts/resolve-diff.sh, bash .claude/skills/code-review-team/scripts/route-verification.sh, bash .claude/skills/code-review-team/scripts/judge-verdict.sh, bash .claude/skills/code-review-team/scripts/merge-reports.sh, bash .claude/skills/code-review-team/scripts/apply-patches.sh, gh pr diff, gh pr comment), Read, Write
 ---
 
 # code-review-team
 
-> 4인 리뷰어 팀 오케스트레이터. 리더는 텍스트를 쓰지 않는다 — 워커 4인이 모든 보고서를 생산한다.
+> 4인 리뷰어 팀 오케스트레이터. 리더는 판단 없이 호출과 스크립트 실행만 한다 — 보고서 본문은 워커 4인이, 반복 로직은 `scripts/`가 담당한다.
 
 ## 사용 시점
-- PR 번호가 주어지고 코드 리뷰를 요청받았을 때
-- "리뷰 재실행", "다시 실행" 같이 동일 PR을 같은 팀으로 재돌릴 때
-- 사용자가 "코드 리뷰 팀 만들어줘" 같이 책 11장 팀을 직접 지칭할 때
 
-## 6 Phase 워크플로 (의사코드)
+> 이 스킬은 `.claude/`가 있는 프로젝트 루트를 작업 디렉토리로 실행되어야 한다 (모든 스크립트·워크스페이스 경로가 상대 경로이기 때문).
 
-> 공식 도구: TeamCreate, AgentTool, TaskCreate, SendMessage, TeamDelete.
-> 의사 함수 (실 구현 필요): `parseDiff`, `waitForTeamCompletion`, `mergeReports`, `$` (셸 실행 헬퍼).
+- PR 번호가 주어지고 코드 리뷰를 요청받았을 때 → PR 모드
+- PR 번호 없이 "코드 리뷰", "리뷰 재실행" 등으로 요청받았을 때 → 로컬 diff 모드 (현재 브랜치의 staged/unstaged/브랜치 base 변경사항을 `resolve-diff.sh`가 자동 판별)
+- "리뷰 재실행", "다시 실행" — 동일 입력으로 재구동 (이전 `_workspace/review/*` 결과 덮어쓰기)
 
-```typescript
-async function codeReviewTeam(prNumber: number) {
-  // ──────────────────────────────────────────────
-  // Phase 0 — 입력 수집
-  // ──────────────────────────────────────────────
-  const diff = await $(`gh pr diff ${prNumber}`);  // 의사: $
-  await Write(`_workspace/input/pr-${prNumber}.diff`, diff);
-  const parsed = parseDiff(diff);                  // 의사: parseDiff
+## Phase 0 — 입력 확보
 
-  // ──────────────────────────────────────────────
-  // Phase 1 — TeamCreate + AgentTool × 4 (worktree 격리)
-  // ──────────────────────────────────────────────
-  const team = await TeamCreate({
-    name: "code-review",
-    description: "PR diff를 4개 렌즈로 리뷰한다"
-  });
+1. `Bash: bash .claude/skills/code-review-team/scripts/resolve-diff.sh [PR번호]` 실행
+2. exit code가 0이 아니면: 사용자에게 "리뷰할 변경사항이 없습니다"라고 보고하고 **여기서 종료** (워커를 스폰하지 않는다 — 토큰 절약)
+3. PR 모드로 호출했는데 stderr에 "로컬 diff로 폴백" 메시지가 있었다면, 그 사실을 사용자에게 알린다
 
-  const roleMap = [
-    "static-analyzer",
-    "design-reviewer",
-    "security-auditor",
-    "refactorer"
-  ];
-  for (const role of roleMap) {
-    await AgentTool({
-      team: team.id,
-      agent: role,
-      isolation: "worktree"
-    });
-  }
+## Phase 1~3 — 병렬 리뷰
 
-  // ──────────────────────────────────────────────
-  // Phase 2 — TaskCreate × 4 (for-루프)
-  // ──────────────────────────────────────────────
-  // 책 주의: 단건 호출은 TaskCreate 1회씩이지만, 의사 표기로는 배열 표기로도 자주 그려진다.
-  // 실제로는 for-루프로 4회 호출.
-  const taskSpecs = [
-    { agent: "static-analyzer",  name: "정적 분석",  output: "_workspace/review/01_static.md"   },
-    { agent: "design-reviewer",  name: "설계 검토",  output: "_workspace/review/02_design.md"   },
-    { agent: "security-auditor", name: "보안 감사",  output: "_workspace/review/03_security.md" },
-    { agent: "refactorer",       name: "리팩토링",   output: "_workspace/review/04_refactor.md",
-      depends_on: ["정적 분석", "설계 검토", "보안 감사"] }
-  ];
-  for (const t of taskSpecs) {
-    await TaskCreate({
-      team: team.id,
-      agent: t.agent,
-      name: t.name,
-      input: `_workspace/input/pr-${prNumber}.diff`,
-      output: t.output,
-      depends_on: t.depends_on
-    });
-  }
+한 메시지에서 `Agent` 도구를 3회 호출한다 (병렬 실행, 서로 의존관계 없음):
 
-  // ──────────────────────────────────────────────
-  // Phase 3 — 팬아웃 (리뷰어 3인 병렬). 동료 SendMessage는 리더 미경유.
-  // ──────────────────────────────────────────────
-  await waitForTeamCompletion(team.id, { tasks: ["정적 분석", "설계 검토", "보안 감사"] });
-  // 워커 간 SendMessage는 워커 정의(.md)의 팀 통신 프로토콜에 따라 자율 호출.
+- `subagent_type: "static-analyzer"` — 프롬프트에 `_workspace/input/diff.patch`, `_workspace/input/files.txt` 경로와 출력 경로 `_workspace/review/01_static.md` 전달
+- `subagent_type: "design-reviewer"` — 출력 경로 `_workspace/review/02_design.md`
+- `subagent_type: "security-auditor"` — 출력 경로 `_workspace/review/03_security.md`
 
-  // ──────────────────────────────────────────────
-  // Phase 4 — 생성-검증 루프 (최대 3회)
-  // ──────────────────────────────────────────────
-  // refactorer는 depends_on 대기 후 자동 시작. 본인이 생성·검증을 내부에서 3회 상한으로 진행.
-  await waitForTeamCompletion(team.id, { tasks: ["리팩토링"] });
+세 `Agent` 호출이 모두 반환되면 다음 Phase로 진행한다 (Agent 도구는 완료 시 결과를 반환하므로 별도 폴링 불필요).
 
-  // ──────────────────────────────────────────────
-  // Phase 5 — 통합 · 게시 · 정리
-  // ──────────────────────────────────────────────
-  const reports = [
-    Read("_workspace/review/01_static.md"),
-    Read("_workspace/review/02_design.md"),
-    Read("_workspace/review/03_security.md"),
-    Read("_workspace/review/04_refactor.md")
-  ];
-  const merged = mergeReports(reports, { priority: ["P0", "P1", "P2"] });
-  await Write("_workspace/review_report.md", merged);
+## Phase 4 — refactorer + 생성-검증 루프
 
-  await $(`gh pr comment ${prNumber} -F _workspace/review_report.md`);
-  await TeamDelete(team.id);  // workspace 보존
-}
-```
+1. `Agent(subagent_type: "refactorer")` 1회 호출. 프롬프트에 세 보고서 경로(`01_static.md`, `02_design.md`, `03_security.md`)와 출력 경로(`_workspace/review/04_refactor.md`, `_workspace/patches/`) 전달.
+2. `Bash: bash .claude/skills/code-review-team/scripts/route-verification.sh` 실행 → `_workspace/verification/queue.tsv` 생성. 이 파일이 비어 있으면(정상적으로는 P0 patch가 없다는 뜻이지만, 검증할 patch가 없다는 것 자체가 핵심 조건이다) Phase 5로 바로 진행. 단, `route-verification.sh` 자체가 0이 아닌 exit code로 종료했다면(=`_workspace/review/04_refactor.md`가 아예 없음, refactorer가 보고서를 생성하지 못함) 이는 빈 큐와 다른 에러 상황이므로 조용히 진행하지 말고 사용자에게 보고한다.
+3. `queue.tsv`를 한 줄씩(patch파일, 담당에이전트, 발견원문 — 탭 구분 3열) 순회하며, **patch당 시도 횟수를 1로 시작해** 아래를 반복한다:
+   1. `Agent(subagent_type: <담당에이전트>)` 호출. 프롬프트: "`_workspace/patches/{patch}`가 `_workspace/review/{원본보고서}`의 다음 발견을 해결했는지만 확인하라: {발견원문}. 전체 재리뷰는 하지 말고 이 patch 하나만 확인한 뒤, 응답 마지막 줄을 반드시 `VERDICT: PASS` 또는 `VERDICT: FAIL - <한 줄 사유>`로 끝내라." (`{원본보고서}`는 `queue.tsv`의 세 번째 열인 "발견 원문" 필드의 첫 공백 구분 토큰으로 주어지는 보고서 파일명이다 — 예: `03_security.md`)
+   2. 그 응답 전체를 `Bash: bash .claude/skills/code-review-team/scripts/judge-verdict.sh {patch} {시도횟수}` 에 stdin으로 넘긴다. 결과는 `PASS`/`RETRY`/`REJECTED` 중 하나.
+   3. `PASS`면: 이 patch는 통과. 다음 patch로 이동.
+   4. `RETRY`면: `Agent(subagent_type: "refactorer")`를 다시 호출해 "patch {patch}가 다음 사유로 거절됨: {검증 응답 마지막 줄이 `VERDICT: FAIL - `로 시작하면 그 뒤의 문자열을 그대로 사용하고, 형식을 지키지 않았다면 '응답 형식 위반'}. 이 patch만 재생성하라" 요청하고, 시도 횟수 +1 후 3.1로 돌아간다.
+   5. `REJECTED`면: `judge-verdict.sh`가 이미 `_workspace/patches/{patch}` → `{patch}.rejected` 리네임까지 끝낸 상태. 이 patch는 사람 위임 대상으로 두고 다음 patch로 이동 — 리더가 직접 파일을 옮기지 않는다.
 
-## 도구 분류 (책 본문 메모)
+## Phase 5 — 통합 · 패치 적용 · 게시
 
-**공식 5종** (실제 호출 가능):
-- TeamCreate
-- AgentTool
-- TaskCreate
-- SendMessage (워커 정의에서 직접 호출)
-- TeamDelete
+1. `Bash: bash .claude/skills/code-review-team/scripts/merge-reports.sh` → `_workspace/review_report.md`
+2. `Bash: bash .claude/skills/code-review-team/scripts/apply-patches.sh` → working tree에 반영(커밋 없음). exit code가 0이 아니면(=실패한 patch 있음) 그 stdout의 `FAILED:` 목록을 `_workspace/review_report.md` 맨 위에 한 줄로 덧붙인다(파일명 나열만, 내용 해석 없음).
+3. **PR 모드였다면**: 사용자에게 "PR #{N}에 통합 보고서를 코멘트로 게시할까요?"를 확인하고, 승인 시 `Bash: gh pr comment {N} -F _workspace/review_report.md`
+4. **로컬 모드였다면**: 게시 없이 종료. `_workspace/review_report.md` 위치를 사용자에게 안내.
 
-**의사 함수 4종** (구현자가 직접 만들어야 함):
-- `parseDiff(diff)` — diff 텍스트를 파일·라인 메타로
-- `waitForTeamCompletion(teamId, opts)` — 작업 완료 대기
-- `mergeReports(reports, opts)` — 4 보고서를 우선순위 정렬해 통합
-- `$(cmd)` — Bash 실행 헬퍼
+## 불변 규칙
 
-## 주의
-
-- **리더 무발화**: 본 스킬은 호출만 한다. 리뷰 본문 텍스트는 워커 4인이 생산.
-- **자동 커밋 금지**: 본 스킬은 `gh pr comment`까지만. `git commit`·`gh pr merge`는 호출하지 않는다.
-- **workspace 보존**: TeamDelete 후에도 `_workspace/` 디렉토리는 남는다. 사람이 재검토할 수 있게.
-- **재실행 트리거**: "리뷰 재실행" 키워드로 동일 prNumber 재돌리기 가능 (이전 결과 덮어쓰기).
+- **리더 무발화**: 리더는 보고서·발견 내용을 읽고 판단하지 않는다. 라우팅은 스크립트 출력을, 검증은 `VERDICT:` 한 줄만 본다.
+- **자동 커밋 금지**: 이 스킬은 어떤 단계에서도 `git commit`을 호출하지 않는다. `git apply`로 working tree만 바꾼다.
+- **workspace 보존**: 실행 종료 후에도 `_workspace/`는 삭제하지 않는다.
+- **생성-검증 루프 ≤3회 (patch 단위)**: 3회 시도 후에도 실패하면 `.rejected`로 격리하고 적용하지 않는다.
+- **재실행**: 동일 입력(PR 번호 또는 로컬 diff)으로 다시 실행하면 `_workspace/review/*`를 덮어쓴다.
+- **이식성**: 이 폴더(`.claude/skills/code-review-team/` + `.claude/agents/*.md`)를 통째로 다른 저장소에 복사하면 별도 설치 없이 바로 동작한다.

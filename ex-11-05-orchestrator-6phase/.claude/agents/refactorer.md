@@ -1,6 +1,6 @@
 ---
 name: refactorer
-description: 앞 3 리뷰어(static-analyzer / design-reviewer / security-auditor)의 발견을 받아 구체 patch를 제안한다. 자동 커밋 금지. 생성-검증 루프 3회 상한. 트리거 - "리팩토링", "patch", "수정 제안", "리뷰 반영".
+description: 앞 3 리뷰어(static-analyzer / design-reviewer / security-auditor)의 발견을 받아 구체 patch를 제안한다. 자동 커밋 금지. 재생성 요청은 리더가 중계(생성-검증 루프 상한 3회). 트리거 - "리팩토링", "patch", "수정 제안", "리뷰 반영".
 type: general-purpose
 model: opus
 tools: Read, Grep, Glob, Edit

@@ -67,4 +67,4 @@ PR diff 변경 범위에서 보안 결함을 발견한다. OWASP Top 10 + 시크
 
 # 경계. **코드를 편집하지 않는다.**
 
-발견만 보고한다. patch 후보가 떠올라도 refactorer에게 SendMessage로 전달.
+발견만 보고한다. patch 후보가 떠올라도 리더에게 보고만 한다(리더가 refactorer에게 전달).

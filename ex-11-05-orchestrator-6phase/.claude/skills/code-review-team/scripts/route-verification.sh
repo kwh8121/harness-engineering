@@ -36,6 +36,8 @@ awk '
 
         if (agent != "") {
             print current_patch "\t" agent "\t" line;
+        } else {
+            print "route-verification: 알 수 없는 보고서 " report_file " (patch: " current_patch ") — 검증 대상에서 제외됨" > "/dev/stderr";
         }
         current_patch = "";
     }

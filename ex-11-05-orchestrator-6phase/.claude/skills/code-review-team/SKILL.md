@@ -21,7 +21,6 @@ allowed-tools: Agent, Bash(bash .claude/skills/code-review-team/scripts/resolve-
 1. `Bash: bash .claude/skills/code-review-team/scripts/resolve-diff.sh [PR번호]` 실행
 2. exit code가 0이 아니면: 사용자에게 "리뷰할 변경사항이 없습니다"라고 보고하고 **여기서 종료** (워커를 스폰하지 않는다 — 토큰 절약)
 3. PR 모드로 호출했는데 stderr에 "로컬 diff로 폴백" 메시지가 있었다면, 그 사실을 사용자에게 알린다
-4. `Bash: mkdir -p _workspace/review _workspace/patches` 실행 — 워커를 스폰하기 전에 출력 디렉토리를 미리 만들어 둔다 (`resolve-diff.sh`는 `_workspace/input/`만 만든다).
 
 ## Phase 1~3 — 병렬 리뷰
 
@@ -41,7 +40,7 @@ allowed-tools: Agent, Bash(bash .claude/skills/code-review-team/scripts/resolve-
    1. `Agent(subagent_type: <담당에이전트>)` 호출. 프롬프트: "`_workspace/patches/{patch}`가 `_workspace/review/{원본보고서}`의 다음 발견을 해결했는지만 확인하라: {발견원문}. 전체 재리뷰는 하지 말고 이 patch 하나만 확인한 뒤, 응답 마지막 줄을 반드시 `VERDICT: PASS` 또는 `VERDICT: FAIL - <한 줄 사유>`로 끝내라." (`{원본보고서}`는 `queue.tsv`의 세 번째 열인 "발견 원문" 필드의 첫 공백 구분 토큰으로 주어지는 보고서 파일명이다 — 예: `03_security.md`)
    2. 그 응답 전체를 `Bash: bash .claude/skills/code-review-team/scripts/judge-verdict.sh {patch} {시도횟수}` 에 stdin으로 넘긴다. 결과는 `PASS`/`RETRY`/`REJECTED` 중 하나.
    3. `PASS`면: 이 patch는 통과. 다음 patch로 이동.
-   4. `RETRY`면: `Agent(subagent_type: "refactorer")`를 다시 호출해 "patch {patch}가 다음 사유로 거절됨: {검증 응답에서 나온 사유 또는 '응답 형식 위반'}. 이 patch만 재생성하라" 요청하고, 시도 횟수 +1 후 3.1로 돌아간다.
+   4. `RETRY`면: `Agent(subagent_type: "refactorer")`를 다시 호출해 "patch {patch}가 다음 사유로 거절됨: {검증 응답 마지막 줄이 `VERDICT: FAIL - `로 시작하면 그 뒤의 문자열을 그대로 사용하고, 형식을 지키지 않았다면 '응답 형식 위반'}. 이 patch만 재생성하라" 요청하고, 시도 횟수 +1 후 3.1로 돌아간다.
    5. `REJECTED`면: `judge-verdict.sh`가 이미 `_workspace/patches/{patch}` → `{patch}.rejected` 리네임까지 끝낸 상태. 이 patch는 사람 위임 대상으로 두고 다음 patch로 이동 — 리더가 직접 파일을 옮기지 않는다.
 
 ## Phase 5 — 통합 · 패치 적용 · 게시

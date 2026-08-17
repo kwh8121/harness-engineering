@@ -1,3 +1,5 @@
+> **[2026-08-17 이후 기록]** 이 문서는 code-review-team 재작성 이전(책 의사코드 충실도 검증 시절)의 기록이다. 현재 아키텍처는 실제 `Agent`/`Bash` 도구 기반이며, 여기 서술된 `TeamCreate`/`TaskCreate`/`TeamDelete`/`AgentTool` 전제는 더 이상 유효하지 않다. 최신 설계는 `../../docs/superpowers/specs/2026-08-17-code-review-team-rewrite-design.md` 참고.
+
 # 셀프 체크 (ex-11-05)
 
 - [x] `.claude/skills/code-review-team/SKILL.md` 작성

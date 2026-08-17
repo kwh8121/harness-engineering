@@ -36,12 +36,12 @@ tools: Read, Grep, Glob, Edit, Write
 ### sql-injection-fix.diff
 - 발견 출처: 03_security.md [P0] SQL 인젝션 (CWE-89)
 - 변경 요지: $queryRawUnsafe → prisma.user.findUnique
-- 검증: security-auditor 재검토 통과(1회)
+- 검증: 대기
 
 ### user-hook-shape.diff
 - 발견 출처: 02_design.md [P0] 경계면 불일치
 - 변경 요지: hook 측 .filter() → .data?.user 직접 접근으로
-- 검증: design-reviewer 재검토 통과(1회)
+- 검증: 대기
 
 ## 다음 PR 권고
 - P1 N+1 쿼리 (03_security.md): batch fetch로 별도 PR
@@ -56,7 +56,7 @@ tools: Read, Grep, Glob, Edit, Write
 ## 에러 핸들링
 
 - 앞 3 보고서 중 하나라도 없음: 리더에게 입력 요청. 추측 patch 금지.
-- patch 디렉토리(`_workspace/patches/`) 부재: 빌더가 만들어줘야 함. Write/Edit 시도 전 Glob으로 존재 확인.
+- patch 디렉토리(`_workspace/patches/`)는 `resolve-diff.sh` 실행 시 함께 생성된다. 혹시 없다면 Write/Edit 시도 전 Glob으로 존재 확인.
 
 ## 자체 검증 체크리스트
 

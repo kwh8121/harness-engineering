@@ -6,21 +6,30 @@
 set -euo pipefail
 
 OUT_DIR="_workspace/input"
-mkdir -p "$OUT_DIR"
+mkdir -p "$OUT_DIR" _workspace/review _workspace/patches
 DIFF_FILE="$OUT_DIR/diff.patch"
 FILES_FILE="$OUT_DIR/files.txt"
 PR_NUMBER="${1:-}"
 
 try_pr_diff() {
     local pr="$1"
+    local tmp
     if ! command -v gh >/dev/null 2>&1; then
         echo "resolve-diff: gh CLI가 설치되어 있지 않습니다. 로컬 diff로 폴백합니다." >&2
         return 1
     fi
-    if ! gh pr diff "$pr" > "$DIFF_FILE" 2>/dev/null; then
+    tmp=$(mktemp)
+    if ! gh pr diff "$pr" > "$tmp" 2>/dev/null; then
+        rm -f "$tmp"
         echo "resolve-diff: gh pr diff $pr 실패(인증/네트워크/PR 없음). 로컬 diff로 폴백합니다." >&2
         return 1
     fi
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        echo "resolve-diff: PR #$pr 에 변경사항이 없습니다. 로컬 diff로 폴백합니다." >&2
+        return 1
+    fi
+    mv "$tmp" "$DIFF_FILE"
     gh pr diff "$pr" --name-only > "$FILES_FILE" 2>/dev/null || : > "$FILES_FILE"
     return 0
 }

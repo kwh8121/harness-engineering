@@ -1,0 +1,102 @@
+# Harness Router — 판정 트리와 레벨별 실행 절차
+
+## 최상위 규칙
+
+```
+Always choose the least complex harness that can safely complete the task.
+```
+
+한 레벨 위를 고르고 싶을 때마다, **아래 레벨이 왜 안 되는지**를 한 문장으로 쓸 수 있어야 한다.
+쓸 수 없으면 아래 레벨이 맞다. 이 문장은 `harness.rationale` 에 그대로 들어간다.
+
+## 판정 트리
+
+```
+STEP 1  단일 세션·단일 컨텍스트로 안전하게 완료 가능한가?
+        (변경 영역 1개 AND risk ≤ low AND uncertainty = low)
+        YES → H0
+
+STEP 2  순차 분리 + 독립 Reviewer 면 충분한가?
+        (독립 실행 가능 작업 단위가 1개 = parallelism: none)
+        YES → H1
+
+STEP 3  독립 실행 가능한 작업 단위가 2개 이상인가?
+        (parallelism ≥ some AND 동일 파일 수정 충돌 위험 낮음 AND 병렬화로 실제 시간 절약)
+        세 조건 AND 다. 하나라도 아니면 → H1
+
+STEP 4  작업 간 Dependency 가 있거나 실패 원인별 재라우팅이 필요한가?
+        NO  → H2
+        YES → H3
+
+STEP 5  side_effect ∈ {irreversible} 이거나 target_environment = production
+        이거나 시크릿·데이터 삭제를 건드리는가?
+        YES → 레벨과 무관하게 human_gate.required = true
+```
+
+### 승격을 막는 반례
+
+- "영역이 3개니까 워커 3명" — **아니다.** 3영역이 하나의 흐름으로 묶여 있으면 독립 단위는 1개고 H1 이다.
+- "위험하니까 H3" — **아니다.** risk 는 레벨이 아니라 reviewer 유무·`max_loops`·Human Gate 를 바꾼다.
+- "복잡하니까 orchestrator" — **아니다.** orchestrator 는 *재라우팅*이 필요할 때만 값을 한다.
+  실패 시 항상 같은 곳(implementer)으로 돌아가면 H2 로 충분하다.
+- "uncertainty 가 높으니까 H3" — **아니다.** dependency-mapper·baseline-tester 는 H1 에도 붙일 수 있다.
+
+## 레벨별 실행 절차
+
+### H0 — Single (에이전트 0)
+
+1. 직접 구현한다. 서브에이전트를 스폰하지 않는다.
+2. `run-gates.sh fast` → 실패하면 고치고 재실행.
+3. `run-gates.sh final`.
+4. **REQUIRED SUB-SKILL:** Use superpowers:verification-before-completion 후 종료.
+
+게이트가 2회 연속 같은 이유로 실패하면 추측으로 고치지 말고
+**REQUIRED SUB-SKILL:** Use superpowers:systematic-debugging.
+
+### H1 — Pipeline (implementer + reviewer)
+
+1. `uncertainty ≥ medium` 이면 먼저 `dependency-mapper` 와 `baseline-tester` 를
+   **한 메시지에서 동시 dispatch** 한다. 보고서는 `_workspace/harness/research/` 에 남는다.
+2. `implementer` 1인 dispatch. 프롬프트에 `superpowers:test-driven-development` 를 주입하고,
+   조사 보고서는 **파일 경로로** 넘긴다 (본문 붙여넣기 금지).
+3. `run-gates.sh fast` → `run-gates.sh feature`. 실패하면 implementer 에게 로그 경로를 주고 재시도.
+   **게이트 실패를 reviewer 에게 보내지 않는다.**
+4. 게이트가 전부 통과한 뒤에만 `reviewer` 1인 dispatch.
+   컨텍스트는 task + 수용 기준 + `git diff` + 게이트 결과뿐이다.
+5. `blocking`(BLOCKER/MAJOR) 발견이 있으면 implementer 로 돌려보낸다. **`max_loops` 회까지만.**
+   초과하면 고치지 말고 남은 발견을 정리해 사람에게 넘긴다.
+6. `run-gates.sh final` → verification-before-completion → 종료.
+
+### H2 — Fan-out / Fan-in (워커 ≤3 + integrator)
+
+1. **REQUIRED SUB-SKILL:** Use superpowers:using-git-worktrees 로 격리된 작업 공간을 확보한다.
+2. `dependency-mapper` ‖ `baseline-tester` 동시 dispatch.
+   dependency-mapper 가 "실은 독립이 아니다"라고 보고하면 **H1 로 강등하고 spec 을 고쳐 재승인받는다.**
+3. **REQUIRED SUB-SKILL:** Use superpowers:writing-plans 로 작업 단위별 계획을 만든다.
+4. **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development 로 계획을 실행한다.
+   워커 응답은 SDD 의 4상태 계약(`DONE` / `DONE_WITH_CONCERNS` / `NEEDS_CONTEXT` / `BLOCKED`)을 따른다.
+   **구현 워커를 동시에 여러 개 dispatch 하지 않는다** — `max_workers: 3` 은 병합 단위 수이지
+   동시 실행 수가 아니다. 같은 트리를 동시에 고치면 충돌 복구 비용이 병렬 이득을 넘는다.
+5. 각 단위 완료 시 `run-gates.sh fast`.
+6. 전 단위 완료 후 `integrator` dispatch — 인터페이스 불일치·의존 충돌·회귀·머지 충돌만 본다.
+   **새 기능을 만들지 않는다.**
+7. `run-gates.sh feature` → `reviewer` → `run-gates.sh final` (H1 의 4~6단계와 동일).
+
+### H3 — Orchestrator + DAG
+
+H2 절차에 다음을 더한다.
+
+1. `orchestrator` 를 dispatch한다. orchestrator 는 **코드를 쓰지 않는다** —
+   `tools` 에 Edit 이 없어 도구 수준에서 막혀 있다. 상태·다음 에이전트 선택·재라우팅·Human Gate 만 한다.
+2. 계획을 선형 목록이 아니라 **DAG** 로 만든다. 노드마다 `depends_on` 을 명시한다.
+3. 통합 검증 실패 시 원인별로 재라우팅한다 (`escalation` 블록):
+
+   | 실패 양상 | 되돌려 보낼 곳 |
+   |---|---|
+   | 문서화되지 않은 호출부가 드러남 | `dependency-mapper` |
+   | "원래 이렇게 동작했다"는 전제가 틀림 | `baseline-tester` |
+   | 계획대로인데 코드가 틀림 | `implementer` |
+   | 같은 게이트가 3회 연속 실패 | `superpowers:systematic-debugging` |
+
+4. `human_gate.required` 면 `human_gate.before` 시점마다 **증거를 제시하고 멈춘다.**
+   증거 = 게이트 로그 경로 + diff 통계 + 롤백 절차. 승인 없이 다음 노드로 진행하지 않는다.

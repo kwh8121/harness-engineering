@@ -54,6 +54,8 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 - `tests/` — 스크립트 bash 테스트 하네스 (35 assertion)
 - `fixtures/` — 스택 감지용 가짜 프로젝트 5종
 - `evals/` — 라우팅 판정 eval (H0 / H1 / H3 기대값과 실행 기록)
+- `MIGRATION.md` — 다른 저장소로 이식하는 절차 (사전 요건·복사·검증·흔한 실패)
+- `USAGE.md` — 설치 후 매일 어떻게 쓰는가 (Phase 별로 무엇을 보게 되는지, 문서 지도)
 - `CHECKLIST.md` — 활용 체크리스트(Phase 별 확인 항목·거부해야 하는 판정 조합)와
   완성도 점검 체크리스트(결정론적 검증 명령·eval·**아직 검증되지 않은 영역**·이식 절차)
 - `LINEAR-DRY-RUN.md` — Linear 추적 리허설. 가상 작업 하나로 `Triage → Todo →

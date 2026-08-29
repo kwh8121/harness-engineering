@@ -43,3 +43,5 @@
 `../docs/guides/multiagent-pattern.md`(Single → Pipeline → Fan-out → Supervisor 승격 원칙),
 구현 스펙은 `../docs/superpowers/specs/2026-08-29-harness-architect-design.md` 참고.
 절차적 지식은 superpowers 6.3.0 의 12개 스킬에 위임한다 — 매핑표는 `references/catalog.md`.
+
+이 폴더를 다른 저장소로 옮기려면 `MIGRATION.md`, 설치 후 사용법은 `USAGE.md` 참고.

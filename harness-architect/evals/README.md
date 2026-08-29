@@ -18,7 +18,19 @@
 | `inputs/02-profile-upload.md` | H1 | implementer + reviewer | false |
 | `inputs/03-jwt-to-oauth.md` | H3 | orchestrator 포함 | true |
 
-## 결과
+## 결과 (2026-08-29)
+
+| 케이스 | 기대 | 실측 level | 실측 agents | 실측 human_gate | 판정 |
+|---|---|---|---|---|---|
+| 01 버튼 색상 | H0 / 0개 / false | H0 | 0 | false | 일치 |
+| 02 이미지 업로드 | H1 / implementer+reviewer / false | H1 | 2 (implementer, reviewer) | false | 일치 |
+| 03 JWT→OAuth | H3 / orchestrator 포함 / true | H3 | 7 (카탈로그 전체) | true | 일치 |
+
+케이스 03 은 **트리 수정 후 2차 실행** 결과다. 1차는 H1 을 냈다 (아래 참조).
+케이스 02 는 트리 수정에 대한 회귀 확인으로 재실행했으며 H1 을 유지했다.
+
+세 케이스 모두 카탈로그 7종 밖의 역할을 만들지 않았고, `rationale` 에 한 단계 아래를 고르지
+않은 이유를 포함했다.
 
 `results/` 에 각 실행의 판정 근거를 기록한다. 기대와 다르면 `references/routing.md` 의
 판정 문구를 조이고 재실행한다.

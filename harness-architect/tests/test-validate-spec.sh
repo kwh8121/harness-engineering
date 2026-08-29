@@ -140,6 +140,76 @@ mutate h1-pipeline.yaml 'd["tracking"] = {"provider":"none"}'
 out="$(python3 "$VALIDATOR" "$TMP/spec.yaml" 2>&1)"; rc=$?
 assert_exit_code 0 "$rc" "provider none 은 통과한다 (추적 없이도 하네스는 동작한다)"
 
+# ===== PR 리뷰(2026-08-29) 대응 회귀 테스트 =====
+
+# --- target_environment 누락 (Human Gate 우회 경로 1/2) ---
+mutate h1-pipeline.yaml 'del d["task"]["target_environment"]'
+expect_error "E-REQUIRED" "task.target_environment 누락을 거부한다"
+
+# --- target_environment 잘못된 enum ---
+mutate h1-pipeline.yaml 'd["task"]["target_environment"] = "prod"'
+expect_error "E-ENUM" "target_environment 의 잘못된 값('prod')을 거부한다"
+
+# --- target_environment 삭제 + side_effect 위장 + human_gate 거짓 신고 (실제 우회 시나리오) ---
+mutate h3-orchestrator.yaml '
+del d["task"]["target_environment"]
+d["profile"]["side_effect"] = "none"
+d["human_gate"] = {"required": False}
+'
+out="$(python3 "$VALIDATOR" "$TMP/spec.yaml" 2>&1)"; rc=$?
+if [[ "$rc" -eq 0 ]]; then
+    echo "FAIL: target_environment 삭제로 Human Gate 를 우회할 수 있다 (통과해버림)"
+    FAILURES=$((FAILURES + 1))
+else
+    echo "PASS: target_environment 삭제 + side_effect 위장으로 Human Gate 를 우회할 수 없다"
+fi
+
+# --- escalation 블록 삭제 (H3 재라우팅 계약의 핵심) ---
+mutate h1-pipeline.yaml 'del d["escalation"]'
+expect_error "E-REQUIRED" "escalation 블록 삭제를 거부한다"
+
+# --- escalation 이 카탈로그 밖 대상을 가리킨다 ---
+mutate h3-orchestrator.yaml 'd["escalation"]["if_hidden_dependency"] = "reviewer"'
+expect_error "E-ESCALATION" "if_hidden_dependency 가 dependency-mapper 가 아니면 거부한다"
+
+mutate h3-orchestrator.yaml 'd["escalation"]["if_baseline_unknown"] = "implementer"'
+expect_error "E-ESCALATION" "if_baseline_unknown 이 baseline-tester 가 아니면 거부한다"
+
+# --- escalation 의 재라우팅 대상 키 누락 ---
+mutate h3-orchestrator.yaml 'del d["escalation"]["if_gate_fails_repeatedly"]'
+expect_error "E-ESCALATION" "if_gate_fails_repeatedly 누락을 거부한다"
+
+# --- nested 섹션이 매핑이 아니다: verification 이 리스트 (이전엔 처리되지 않은 예외로 죽었다) ---
+mutate h1-pipeline.yaml 'd["verification"] = []'
+out="$(python3 "$VALIDATOR" "$TMP/spec.yaml" 2>&1)"; rc=$?
+if [[ "$out" == *"Traceback"* ]]; then
+    echo "FAIL: verification: [] 이 처리되지 않은 예외(traceback)로 죽는다"
+    FAILURES=$((FAILURES + 1))
+elif [[ "$rc" -eq 0 ]]; then
+    echo "FAIL: verification: [] 이 통과해버린다"
+    FAILURES=$((FAILURES + 1))
+elif [[ "$out" != *"E-TYPE"* ]]; then
+    echo "FAIL: verification: [] 이 죽지 않고 실패하지만 E-TYPE 근거가 없다"
+    FAILURES=$((FAILURES + 1))
+else
+    echo "PASS: verification: [] 이 죽지 않고 E-TYPE 으로 깔끔하게 거부된다"
+fi
+
+# --- nested 섹션이 매핑이 아니다: tracking 이 null (이전엔 조용히 통과했다) ---
+mutate h1-pipeline.yaml 'd["tracking"] = None'
+expect_error "E-TYPE" "tracking: null 이 더 이상 조용히 통과하지 않는다"
+
+# --- nested 섹션이 매핑이 아니다: context 가 문자열 ---
+mutate h1-pipeline.yaml 'd["context"] = "none"'
+expect_error "E-TYPE" "context 가 문자열이면 거부한다"
+
+# --- 허용되지 않은 스킬 이름 ---
+mutate h1-pipeline.yaml 'd["controller_skills"].append("superpowers:made-up-skill")'
+expect_error "E-SKILL-UNKNOWN" "존재하지 않는 controller_skills 항목을 거부한다"
+
+mutate h1-pipeline.yaml 'd["agent_skills"]["implementer"].append("superpowers:another-fake-skill")'
+expect_error "E-SKILL-UNKNOWN" "존재하지 않는 agent_skills 항목을 거부한다"
+
 # --- 필수 최상위 키 누락 ---
 mutate h1-pipeline.yaml 'del d["review_policy"]'
 expect_error "E-REQUIRED" "필수 최상위 키 누락을 거부한다"

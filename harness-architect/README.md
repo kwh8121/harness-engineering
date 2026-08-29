@@ -29,7 +29,11 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 
 > **역할 수 ≠ 동시 실행 수.** 위 열은 하네스가 쓰는 *서로 다른 역할*의 총수이고,
 > 동시에 도는 워커는 어느 레벨에서든 `max_workers: 3` 이 상한이다.
-> H3 은 H2 의 5역할에 `orchestrator` 와 `deployment-agent` 를 더한 것이다.
+> H3 은 H2 의 5역할에 `orchestrator` 가 더해져 최소 6역할이다. `deployment-agent` 는
+> H3 이라고 항상 붙는 게 아니라 그 작업이 실제로 배포를 수반할 때만 추가된다 —
+> `examples/h3-orchestrator.yaml`(인증 마이그레이션 + 배포)은 7역할이지만, 배포가
+> 없는 H3(예: 내부 리팩터링 DAG)는 6역할로 끝난다. `validate-spec.py` 도 H3 에
+> `orchestrator` 만 강제하고 `deployment-agent` 는 강제하지 않는다.
 
 판정은 6축 프로파일링(scope / coupling / parallelism / uncertainty / risk / side_effect) 뒤
 5스텝 판정 트리로 이루어진다. **한 단계 아래가 왜 안 되는지 쓸 수 없으면 아래 레벨이 맞다.**

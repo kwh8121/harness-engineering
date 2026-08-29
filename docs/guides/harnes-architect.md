@@ -1,6 +1,6 @@
 **별도의 “Harness Orchestrator Agent”를 항상 띄우는 방식보다는, 먼저 `Harness Architect Skill`을 만들고 이 Skill이 작업을 분류해 필요한 경우에만 Agent/Orchestrator를 승격시키는 구조**가 가장 효율적입니다.
 
-이유는 명확합니다. 기존 정리에서도 `Single Agent → Pipeline → Fan-out/Fan-in → Supervisor` 순으로 필요한 만큼만 복잡도를 높이는 것이 핵심이었고, 대부분의 작업은 1~2개 Agent면 충분했습니다.  또한 포매터·린터·테스트·빌드는 Agent가 아니라 실제 명령과 CI의 exit code가 판정하도록 분리하는 것이 토큰과 신뢰성 모두에서 유리합니다. 
+이유는 명확합니다. 기존 정리에서도 `Single Agent → Pipeline → Fan-out/Fan-in → Supervisor` 순으로 필요한 만큼만 복잡도를 높이는 것이 핵심이었고, 대부분의 작업은 1~2개 Agent면 충분했습니다.  또한 포매터·린터·테스트·빌드는 Agent가 아니라 실제 명령과 CI의 exit code가 판정하도록 분리하는 것이 토큰과 신뢰성 모두에서 유리합니다.
 
 제가 추천하는 최종 형태는 **`Task → Harness Architect Skill → Harness Spec → Runtime`**입니다.
 
@@ -148,7 +148,7 @@ flowchart LR
 
 **Agent: 2**
 
-기존 자료에서도 Implementer 1 + Reviewer 1 + 결정론적 검증이 최소 Agent 수와 검증 신뢰성 사이에서 가장 좋은 기본형으로 정리되어 있습니다. 
+기존 자료에서도 Implementer 1 + Reviewer 1 + 결정론적 검증이 최소 Agent 수와 검증 신뢰성 사이에서 가장 좋은 기본형으로 정리되어 있습니다.
 
 저라면 **대부분의 일반 개발을 H1로 처리**합니다.
 
@@ -243,13 +243,13 @@ flowchart TD
 단순 Pipeline으로 표현하기 어려움
 ```
 
-리팩터링/마이그레이션 자료에서도 Dependency와 Baseline은 병렬 수행할 수 있지만 의존 작업에는 DAG가 필요하며, Verification 실패 역시 원인에 따라 Dependency Mapper·Baseline Tester·Worker·Orchestrator로 돌려보내야 한다고 정리되어 있습니다. 
+리팩터링/마이그레이션 자료에서도 Dependency와 Baseline은 병렬 수행할 수 있지만 의존 작업에는 DAG가 필요하며, Verification 실패 역시 원인에 따라 Dependency Mapper·Baseline Tester·Worker·Orchestrator로 돌려보내야 한다고 정리되어 있습니다.
 
 그리고 가장 중요한 규칙:
 
 > **Orchestrator는 코드를 쓰지 않습니다.**
 
-자료의 5페이지에서도 Orchestrator 책임을 상태·다음 Agent 선택·Dependency·분배·결과 수집·Feedback Routing·Human Gate로 제한하고, 코드 수정·테스트 작성·Migration 수행은 하지 않는 구조를 권합니다. 
+자료의 5페이지에서도 Orchestrator 책임을 상태·다음 Agent 선택·Dependency·분배·결과 수집·Feedback Routing·Human Gate로 제한하고, 코드 수정·테스트 작성·Migration 수행은 하지 않는 구조를 권합니다.
 
 ---
 
@@ -320,7 +320,7 @@ flowchart TD
     X -->|No| EXEC[Execute]
 ```
 
-이전 정리의 `Single → Pipeline → Fan-out → Supervisor` 승격 원칙을 그대로 자동화하는 셈입니다. 
+이전 정리의 `Single → Pipeline → Fan-out → Supervisor` 승격 원칙을 그대로 자동화하는 셈입니다.
 
 ---
 
@@ -374,7 +374,7 @@ security-review Skill
 
 처럼 **Skill로 주입**하는 편이 좋습니다.
 
-Superpowers 역시 `writing-plans`, `dispatching-parallel-agents`, `requesting-code-review`, `systematic-debugging` 등을 별도 Agent가 아니라 조합 가능한 Skill로 구성하는 접근을 사용합니다. 
+Superpowers 역시 `writing-plans`, `dispatching-parallel-agents`, `requesting-code-review`, `systematic-debugging` 등을 별도 Agent가 아니라 조합 가능한 Skill로 구성하는 접근을 사용합니다.
 
 ---
 
@@ -464,7 +464,7 @@ flowchart LR
 
 라고 하지 않습니다.
 
-실제 검증 명령의 exit code를 진실의 원천으로 사용하는 것이 기존 하네스 원칙입니다. 
+실제 검증 명령의 exit code를 진실의 원천으로 사용하는 것이 기존 하네스 원칙입니다.
 
 ---
 
@@ -522,9 +522,9 @@ required:
   - API responses
 ```
 
-이전 자료에서도 Worker마다 전체 Repository를 반복해서 읽히지 말고 관련 Context만 분리해 제공하는 것이 토큰 절약의 핵심으로 정리되어 있습니다. 
+이전 자료에서도 Worker마다 전체 Repository를 반복해서 읽히지 말고 관련 Context만 분리해 제공하는 것이 토큰 절약의 핵심으로 정리되어 있습니다.
 
-OpenViking의 L0 → L1 → L2 점진적 Context 로딩 방식 역시 같은 원리를 사용합니다. 
+OpenViking의 L0 → L1 → L2 점진적 Context 로딩 방식 역시 같은 원리를 사용합니다.
 
 ---
 
@@ -682,7 +682,7 @@ AGENTS.md
 → Human Gate 규칙
 ```
 
-세부 orchestration 로직 전체를 `AGENTS.md`에 넣는 것은 피하는 것이 좋습니다. `AGENTS.md`는 공통 실행 계약/맵으로 유지하고 도구별 상세는 별도 위치로 분리하는 방식이 현재 자료의 원칙과도 일치합니다. 
+세부 orchestration 로직 전체를 `AGENTS.md`에 넣는 것은 피하는 것이 좋습니다. `AGENTS.md`는 공통 실행 계약/맵으로 유지하고 도구별 상세는 별도 위치로 분리하는 방식이 현재 자료의 원칙과도 일치합니다.
 
 ---
 

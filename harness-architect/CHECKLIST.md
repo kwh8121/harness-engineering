@@ -134,6 +134,17 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
       > 훅을 걸지 않았다면 이 행들은 "프롬프트 준수에만 의존" 으로 내려간다.
       > 강제 수준 표는 `references/catalog.md` 참고.
 
+- [ ] **HarnessSpec validator 가 실제 위반 시나리오 3종을 거부한다** (2026-08-30 코드 리뷰 대응)
+      ```bash
+      python3 .claude/skills/harness-architect/scripts/validate-spec.py <<< 참고
+      # 아래는 tests/test-validate-spec.sh 가 자동으로 재현·검증한다
+      ```
+      - `task.target_environment` 삭제 + `side_effect: none` 위장 → Human Gate 우회 거부
+      - H3 의 `escalation` 블록 삭제 또는 재라우팅 대상 오류 → 거부
+      - `verification: []`(리스트), `tracking: null` 같은 잘못된 타입 → 처리되지 않은
+        예외로 죽지 않고 `E-TYPE` 으로 깔끔하게 거부
+      - 카탈로그에 없는 `controller_skills`/`agent_skills` 항목 → `E-SKILL-UNKNOWN` 거부
+
 - [ ] **HarnessSpec validator 가 정상 spec 4종을 통과시킨다**
       ```bash
       for f in .claude/skills/harness-architect/examples/*.yaml; do

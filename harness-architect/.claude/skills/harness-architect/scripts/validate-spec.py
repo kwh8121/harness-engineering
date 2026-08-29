@@ -46,7 +46,28 @@ ENUMS = {
     ("profile", "side_effect"): {"none", "reversible", "irreversible"},
     ("harness", "level"): {"H0", "H1", "H2", "H3"},
     ("harness", "pattern"): {"single", "pipeline", "fanout", "dag"},
+    ("task", "target_environment"): {"local", "staging", "production"},
 }
+
+# nested 섹션은 전부 매핑(딕셔너리)이어야 한다. yaml 은 `key: []`·`key: null`·`key: "text"`
+# 를 전부 문법적으로 허용하므로 각 섹션을 쓰기 전에 타입부터 확인해야 한다 — 아니면
+# `verification: []` 같은 입력이 처리되지 않은 예외로 죽거나, `tracking: null` 같은 입력이
+# 검사를 전부 건너뛰고 조용히 통과해 버린다.
+MAPPING_SECTIONS = [
+    "task", "profile", "harness", "verification", "review_policy",
+    "parallelism", "human_gate", "tracking", "context", "agent_skills", "escalation",
+]
+
+# H3 의 Feedback Router 계약: 실패 원인마다 정확히 이 대상으로 되돌아가야 한다.
+# routing.md 의 재라우팅 표, schemas/harness-spec.yaml 의 escalation 주석과 같은 값이다.
+ESCALATION_TARGETS = {
+    "if_hidden_dependency": "dependency-mapper",
+    "if_baseline_unknown": "baseline-tester",
+    "if_implementation_error": "implementer",
+}
+# if_gate_fails_repeatedly 는 카탈로그 에이전트가 아니라 superpowers 스킬을 가리킨다
+# (예: superpowers:systematic-debugging). 정확한 스킬 이름을 강제하지 않고 형식만 본다.
+ESCALATION_KEYS = set(ESCALATION_TARGETS) | {"if_gate_fails_repeatedly"}
 
 LEVEL_PATTERN = {"H0": "single", "H1": "pipeline", "H2": "fanout", "H3": "dag"}
 TIERS = {"fast", "feature", "final"}
@@ -55,11 +76,22 @@ REQUIRED_TOP = [
     "harness_version", "task", "profile", "harness", "agents",
     "controller_skills", "agent_skills", "context",
     "verification", "review_policy", "parallelism", "human_gate", "tracking",
+    "escalation",
 ]
 
 TRACKING_PROVIDERS = {"linear", "none"}
 TRACKING_MODES = {"issue", "project"}
 APPROVAL_PATHS = {"terminal", "linear", "both"}
+
+# 워커에 주입 가능한 스킬(agent_skills) + 컨트롤러가 호출하는 스킬(controller_skills) 의
+# 전체 허용 목록. references/catalog.md 의 매핑표와 정확히 같아야 한다 — 여기 없는
+# 이름은 존재하지 않는 스킬이거나 오타다.
+ALLOWED_SKILLS = CONTROLLER_ONLY_SKILLS | {
+    "superpowers:test-driven-development",
+    "superpowers:receiving-code-review",
+    "superpowers:systematic-debugging",
+    "security-review",
+}
 # 레벨별로 허용되는 추적 모드. H0 은 추적하지 않는다.
 LEVEL_TRACKING_MODE = {"H1": "issue", "H2": "project", "H3": "project"}
 
@@ -88,6 +120,28 @@ def get(d, *path, default=None):
     return cur
 
 
+def check_types(spec, r):
+    """MAPPING_SECTIONS 각각이 매핑인지 먼저 확인한다.
+
+    아니면 두 가지 실패 모드가 생긴다: `verification: []` 처럼 리스트를 주면 이후
+    `.get()` 호출이 AttributeError 로 죽어 처리되지 않은 예외가 사용자에게 그대로
+    노출되고, `tracking: null` 처럼 None 을 주면 `if t is None: return` 류의 조기
+    반환에 걸려 나머지 검사를 전부 건너뛰고 조용히 통과해 버린다.
+
+    타입이 틀린 섹션은 여기서 E-TYPE 으로 보고하고, 이후 검사가 죽지 않도록 spec
+    안에서 빈 매핑으로 바꿔치기한다 — 그래도 이미 E-TYPE 이 있으므로 최종 판정은
+    통과할 수 없다.
+    """
+    for key in MAPPING_SECTIONS:
+        if key not in spec:
+            continue                       # E-REQUIRED 가 이미 잡는다
+        val = spec[key]
+        if not isinstance(val, dict):
+            r.error("E-TYPE", key,
+                    f"매핑(mapping)이어야 한다 (현재 {type(val).__name__}: {val!r})")
+            spec[key] = {}
+
+
 def check_structure(spec, r):
     if "skills" in spec:
         r.error("E-SCHEMA-LEGACY", "skills",
@@ -96,6 +150,8 @@ def check_structure(spec, r):
     for key in REQUIRED_TOP:
         if key not in spec:
             r.error("E-REQUIRED", key, "필수 최상위 키가 없다")
+    # target_environment 는 ENUMS 에 등록돼 있어 check_enums 가 존재 여부와 값을 함께
+    # 검사한다 — 여기서 다시 검사하면 같은 결함이 두 줄로 중복 보고된다.
     for field in ("goal", "scope", "acceptance_criteria"):
         if not get(spec, "task", field):
             r.error("E-REQUIRED", f"task.{field}", "비어 있다")
@@ -194,11 +250,19 @@ def check_skills(spec, agent_ids, r):
         if aid not in agent_ids:
             r.error("E-SKILL-OWNER", f"agent_skills.{aid}",
                     f"'{aid}' 는 이 spec 의 agents 에 없다")
-        for s in (skills or []):
-            if s in CONTROLLER_ONLY_SKILLS:
+        for skill in (skills or []):
+            if skill in CONTROLLER_ONLY_SKILLS:
                 r.error("E-SKILL-OWNER", f"agent_skills.{aid}",
-                        f"'{s}' 는 Agent 도구가 필요한 controller 스킬이다. "
+                        f"'{skill}' 는 Agent 도구가 필요한 controller 스킬이다. "
                         "워커에 주입하면 실행되지 않는다 — controller_skills 로 옮겨라")
+            elif skill not in ALLOWED_SKILLS:
+                r.error("E-SKILL-UNKNOWN", f"agent_skills.{aid}",
+                        f"'{skill}' 는 references/catalog.md 매핑표에 없는 스킬이다")
+
+    for skill in controller:
+        if skill not in ALLOWED_SKILLS:
+            r.error("E-SKILL-UNKNOWN", "controller_skills",
+                    f"'{skill}' 는 references/catalog.md 매핑표에 없는 스킬이다")
 
 
 def check_verification(spec, r, gates_path=None):
@@ -276,6 +340,41 @@ def check_policies(spec, r):
     if required is True and not str(get(spec, "human_gate", "reason") or "").strip():
         r.error("E-HUMAN-GATE", "human_gate.reason",
                 "승인을 요구하면서 사유를 적지 않았다. 사람이 무엇을 승인하는지 알 수 없다")
+
+
+def check_escalation(spec, agent_ids, r):
+    esc = spec.get("escalation")
+    if esc is None:
+        return                             # E-REQUIRED 또는 E-TYPE 이 이미 잡는다
+    if not isinstance(esc, dict):
+        return                             # check_types 가 이미 E-TYPE 으로 잡았다
+
+    # if_gate_fails_repeatedly 는 레벨·에이전트 구성과 무관하게 항상 필요하다 —
+    # H0 도 게이트가 반복 실패할 수 있고, 그때 systematic-debugging 으로 넘어가야 한다.
+    gate_target = esc.get("if_gate_fails_repeatedly")
+    if not str(gate_target or "").strip():
+        r.error("E-ESCALATION", "escalation.if_gate_fails_repeatedly", "값이 없다")
+    elif not str(gate_target).startswith("superpowers:"):
+        r.error("E-ESCALATION", "escalation.if_gate_fails_repeatedly",
+                f"'{gate_target}' 는 카탈로그 에이전트가 아니라 superpowers 스킬을 "
+                "가리켜야 한다 (예: superpowers:systematic-debugging)")
+
+    # 나머지 세 대상은 **그 실패 원인을 낼 수 있는 에이전트가 이 spec 에 실제로 배정된
+    # 경우에만** 요구한다. H0 은 dependency-mapper·baseline-tester·implementer 를
+    # 아예 스폰하지 않으므로 "숨은 의존성이 드러나면 dependency-mapper 로" 라는 문장
+    # 자체가 의미가 없다 — 없는 에이전트를 재라우팅 대상으로 강제하지 않는다.
+    for key, target_agent in ESCALATION_TARGETS.items():
+        if target_agent not in agent_ids:
+            continue
+        val = esc.get(key)
+        if not str(val or "").strip():
+            r.error("E-ESCALATION", f"escalation.{key}",
+                    f"'{target_agent}' 가 이 spec 에 배정되어 있는데 이 실패 원인의 "
+                    "재라우팅 대상이 비어 있다")
+        elif val != target_agent:
+            r.error("E-ESCALATION", f"escalation.{key}",
+                    f"'{val}' 가 아니라 '{target_agent}' 로 되돌려야 한다 "
+                    "(재라우팅 대상은 카탈로그와 고정 매핑이다)")
 
 
 def check_context(spec, agent_ids, r):
@@ -391,10 +490,12 @@ def main(argv):
         return EXIT_CANNOT_RUN
 
     r = Report()
+    check_types(spec, r)          # 다른 모든 검사가 안전하게 .get() 할 수 있도록 먼저 돈다
     check_structure(spec, r)
     check_enums(spec, r)
     check_axes(spec, r)
     agent_ids = check_agents(spec, r)
+    check_escalation(spec, agent_ids, r)
     check_skills(spec, agent_ids, r)
     check_verification(spec, r, gates_path)
     check_policies(spec, r)

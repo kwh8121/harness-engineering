@@ -45,6 +45,8 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 - `.claude/skills/harness-architect/schemas/harness-spec.yaml` — 실행 계약 스키마
 - `.claude/skills/harness-architect/examples/` — H0~H3 판정 사례 4종 (근거 문장 포함)
 - `.claude/skills/harness-architect/scripts/` — `detect-stack` / `run-gates` / `init-workspace`
+  / `validate-spec.py` (HarnessSpec 계약 검증) / `guard-readonly.py` (읽기 전용 역할 쓰기 차단 훅)
+- `.claude/settings.json` — 위 훅을 `PreToolUse` 로 등록한다
 - `.claude/agents/` × 7 — implementer / reviewer / dependency-mapper / baseline-tester /
   integrator / orchestrator / deployment-agent
 - `tests/` — 스크립트 bash 테스트 하네스 (35 assertion)
@@ -61,11 +63,65 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
    모든 에이전트의 `forbidden` 에 `full_repository_dump` 가 들어간다. 보고서는 본문이 아니라 경로로 넘긴다.
 3. **고정 카탈로그** — 역할 정의를 매번 새로 생성하지 않는다. 7종에서 고르기만 한다.
 
-## 도구 경계는 frontmatter 로 강제한다
+## 도구 경계는 frontmatter + 훅으로 강제한다
+
+frontmatter 의 `tools` 가 1차 경계다.
 
 - `reviewer` 에 **Edit 이 없다** — 리뷰어가 고치면 독립 검증이 무너지기 때문
-- `orchestrator` 에 **Edit 이 없다** — Orchestrator 는 코드를 쓰지 않는다는 규칙을 도구 수준에서 강제
+- `orchestrator` 에 **Edit 이 없다** — Orchestrator 는 코드를 쓰지 않는다
 - `dependency-mapper` 에 **Write 가 없다** — 조사 전용
+
+하지만 `Edit` 을 빼도 `Write` 로 새 파일을, `Bash` 로 `sed -i`·리다이렉션을 쓸 수 있다.
+두 도구는 보고서 작성과 검색·게이트에 필요해서 뺄 수 없으므로, **쓰기 대상 경로로 판정하는
+`PreToolUse` 훅**이 2차 경계를 맡는다.
+
+| 역할 | 쓰기 허용 범위 |
+|---|---|
+| `reviewer` · `orchestrator` | `_workspace/` 아래만 |
+| `dependency-mapper` | 없음 (조사 전용) |
+| `implementer` · `integrator` · `baseline-tester` · `deployment-agent` | 가드 대상 아님 |
+
+훅은 셸을 파싱하지 않고 쓰기 구문을 패턴으로 찾는다. **샌드박스가 아니라 규율 장치다.**
+
+### 훅 설치
+
+이 폴더에는 `.claude/settings.json` 이 이미 들어 있어 별도 작업이 필요 없다.
+다른 저장소로 이식할 때는 그 저장소의 `.claude/settings.json` 에 다음을 병합한다.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/skills/harness-architect/scripts/guard-readonly.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+훅을 걸지 않아도 스킬은 동작한다. 다만 그때 읽기 전용 경계는 프롬프트 준수에만 의존한다.
+
+## HarnessSpec 은 실행 전에 기계가 검증한다
+
+Phase 3 은 승인을 요청하기 전에 `validate-spec.py` 를 돌린다. exit 1 이면 승인을 요청하지 않는다.
+
+```bash
+python3 .claude/skills/harness-architect/scripts/validate-spec.py \
+  _workspace/harness/spec.yaml --gates _workspace/harness/gates.tsv
+```
+
+카탈로그 밖 에이전트, `model` 누락, 축 모순(`coupling: high` + `parallelism ≠ none`),
+레벨별 에이전트 불변식, controller 스킬의 워커 오배정, **수용 기준에 대응하는 게이트 부재**,
+Human Gate 누락, `full_repository_dump` 금지 누락, 루프·워커 상한 초과를 거부한다.
+`yaml.safe_load` 성공은 "문법이 YAML 이다" 만 말해 준다는 것이 이 검증기를 만든 이유다.
 
 ## 실행
 
@@ -82,14 +138,15 @@ Phase 0~5 가 진행된다. **Phase 3 에서 반드시 승인을 요청하고 �
 
 ## 결과 요약
 
-- 스크립트 테스트 검증 항목 43개 전부 통과 (`detect-stack` 30 + `run-gates` 13)
+- 스크립트 테스트 검증 항목 84개 전부 통과 (`detect-stack` 30 + `run-gates` 13 + `validate-spec` 21 + `guard-readonly` 20)
 - 라우팅 판정 eval 3건 전부 기대값 일치 (H0 / H1 / H3): `evals/` 참고
 - SKILL.md 자체 심사: 레포의 `reviewing-skill-md` 체크리스트(구조·발견성·크기·안티패턴) 전 항목 pass
   — 이는 **문서 품질** 심사이며, 실행 검증 상태는 아래와 `CHECKLIST.md` B-3 을 본다
 
 **아직 검증되지 않은 영역**: H2 경로는 eval 에서 선택된 적이 없고, Phase 4 실행과
 에이전트 dispatch 는 한 번도 돌지 않았다. `run-gates.sh` 는 실제 린트·테스트 명령이 아니라
-`echo` 로만 검증했다. 전체 목록과 확인 방법은 `CHECKLIST.md` B-3 참고.
+`echo` 로만 검증했고, 훅의 실제 거부는 단위 테스트로만 확인했다(실제 서브에이전트 dispatch 미검증).
+전체 목록과 확인 방법은 `CHECKLIST.md` B-3 참고.
 
 설계 근거는 `../docs/guides/harnes-architect.md`, 구현 스펙은
 `../docs/superpowers/specs/2026-08-29-harness-architect-design.md` 참고.

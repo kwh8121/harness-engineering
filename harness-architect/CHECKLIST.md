@@ -122,10 +122,28 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
       - `orchestrator` 에 Edit 없음 (Orchestrator 는 코드를 쓰지 않는다)
       - `dependency-mapper` 에 Write 없음 (조사 전용)
 
-      > **이 검사가 보장하지 않는 것**: `Edit` 제거는 *정식 편집 경로*만 막는다.
-      > `Write` 로 새 파일을, `Bash` 로 `sed -i`·리다이렉션을 쓰면 우회된다.
-      > 이 검사를 통과했다고 "읽기 전용이 강제됐다"고 읽으면 안 된다.
-      > 강제 수준 표는 `references/catalog.md`, 미해결 항목은 아래 B-3 참고.
+      > **이 검사만으로는 부족하다**: `Edit` 제거는 *정식 편집 경로*만 막는다.
+      > `Write`·`Bash` 우회는 위의 `guard-readonly.py` 훅이 담당하므로 **두 검사를 함께** 본다.
+      > 훅을 걸지 않았다면 이 행들은 "프롬프트 준수에만 의존" 으로 내려간다.
+      > 강제 수준 표는 `references/catalog.md` 참고.
+
+- [ ] **HarnessSpec validator 가 정상 spec 4종을 통과시킨다**
+      ```bash
+      for f in .claude/skills/harness-architect/examples/*.yaml; do
+        python3 .claude/skills/harness-architect/scripts/validate-spec.py "$f" | tail -1
+      done
+      ```
+      → 기대: `통과 (경고 0건)` 4줄
+
+- [ ] **읽기 전용 가드 훅이 소스 쓰기를 거부한다**
+      ```bash
+      echo '{"hook_event_name":"PreToolUse","agent_type":"reviewer","agent_id":"s1",
+             "tool_name":"Write","tool_input":{"file_path":"src/x.ts","content":"y"}}'         | python3 .claude/skills/harness-architect/scripts/guard-readonly.py
+      ```
+      → 기대: `"permissionDecision": "deny"` 가 포함된 JSON
+
+- [ ] **`.claude/settings.json` 이 훅을 등록하고 있다** — 없으면 가드는 걸리지 않는다
+      (`python3 -c "import json;print(json.load(open('.claude/settings.json'))['hooks']['PreToolUse'])"`)
 
 - [ ] **SKILL.md 심사** — `bash ../ex-05-13-skill-md-reviewer/.claude/skills/reviewing-skill-md/scripts/collect-metrics.sh .claude/skills/harness-architect/SKILL.md`
       → 기대: `line_count` < 300, `frontmatter_chars` < 800, `has_references_dir: yes`,
@@ -162,15 +180,14 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
       → 특히 `package.json` 의 `scripts` 블록이 한 줄로 압축된 경우, 중첩 객체가 있는 경우
 - [ ] **`max_loops` 상한이 실제로 루프를 끊는지 검증되지 않았다**
 - [ ] **Human Gate 가 실제로 실행을 멈추는지 검증되지 않았다**
-- [ ] **읽기 전용 역할의 쓰기 차단이 프롬프트 준수에만 의존한다**
-      — `reviewer`·`orchestrator` 는 `Write`+`Bash`, `dependency-mapper` 는 `Bash` 를 갖는다.
-      `Edit` 제거로는 `sed -i`·리다이렉션을 막지 못한다
-      → 확인 방법: 각 역할에 소스 수정을 지시하는 negative test 를 돌려 실제 거부율을 잰다.
-      차단이 필요하면 `PreToolUse` 훅이나 권한 규칙을 추가한다 (현재 미제공)
-- [ ] **`HarnessSpec` 이 스키마 계약대로인지 기계적으로 검증되지 않는다**
-      — B-1 의 YAML 검사는 `yaml.safe_load` 성공 여부만 본다. 카탈로그 밖 에이전트,
-      `model` 누락, enum 위반, 수용 기준에 대응하는 게이트 부재를 잡지 못한다
-      → 확인 방법: spec validator 를 추가하고 malformed spec 으로 negative test 를 만든다
+- [ ] **가드 훅이 실제 서브에이전트 dispatch 에서 거부하는지 검증되지 않았다**
+      — `guard-readonly.py` 는 단위 테스트(합성 훅 입력 21건)로만 확인했다.
+      실제로 `agent_type` 이 `reviewer` 로 실려 오는지, 훅이 실제 dispatch 를 막는지는 미검증
+      → 확인 방법: reviewer 를 실제 dispatch 해 소스 수정을 지시하고 거부되는지 본다
+- [ ] **가드 훅의 우회 경로가 열려 있다** (설계상 한계)
+      — 셸을 파싱하지 않고 쓰기 구문을 패턴으로 찾으므로 변수 확장, base64,
+      인터프리터 파이프는 잡지 못한다. **샌드박스가 아니라 규율 장치다**
+      → 강제가 필요하면 OS 수준 권한이나 읽기 전용 마운트를 쓴다
 - [ ] **`detect-stack.sh` 의 awk 폴백 경로가 검증되지 않았다**
       — python3·node 가 둘 다 없는 환경에서만 쓰이며, 한 줄 `package.json` 을 인식하지 못한다
       (그 경우 stderr 로 경고한다)

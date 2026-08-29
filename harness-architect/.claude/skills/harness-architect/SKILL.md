@@ -46,9 +46,13 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 1. `schemas/harness-spec.yaml` 형식으로 `_workspace/harness/spec.yaml` 을 쓴다. 에이전트는
    `references/catalog.md` 7종에서만, 스킬은 그 매핑표에서만 고른다.
    `context:` 는 `references/context-budget.md` 기본값을 인스턴스화한다.
-2. **한 화면 요약**을 제시한다: 레벨 + 근거 / 에이전트와 모델 / 게이트 / 리뷰 루프 상한 /
-   Human Gate 여부와 사유 / 병렬도.
-3. **승인을 받는다.**
+2. `Bash: python3 .claude/skills/harness-architect/scripts/validate-spec.py _workspace/harness/spec.yaml --gates _workspace/harness/gates.tsv`
+   - exit 1 → **계약 위반이다. 승인을 요청하지 말고 spec 을 고쳐 재검증한다.**
+   - exit 2 → 검증기를 돌릴 수 없다(PyYAML 부재 등). 그 사실을 사용자에게 알리고
+     `CHECKLIST.md` A-2 를 손으로 확인한다.
+3. **한 화면 요약**을 제시한다: 레벨 + 근거 / 에이전트와 모델 / 게이트 / 리뷰 루프 상한 /
+   Human Gate 여부와 사유 / 병렬도. validator 경고가 있으면 함께 보인다.
+4. **승인을 받는다.**
 
 ## Phase 4 — 실행
 
@@ -80,5 +84,6 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 - **구현 워커 동시 dispatch 금지**: `max_workers: 3` 은 병합 단위 수이지 동시 실행 수가 아니다. 동시 dispatch 는 파일을 쓰지 않는 조사 에이전트에만 허용한다.
 - **리뷰 루프 상한**: `max_loops`(기본 2, risk: high 만 3) 초과 시 고치지 말고 사람에게 넘긴다. MINOR·NIT 는 루프를 막지 않는다.
 - **자동 커밋 금지 / workspace 보존**: `git commit` 을 호출하지 않고, 종료 후에도 `_workspace/` 를 삭제하지 않는다.
-- **`allowed-tools` 의 Bash 가 넓은 이유**: 게이트 명령이 프로젝트마다 달라 화이트리스트가 불가능하다. 대신 각 에이전트의 `tools` 로 경계를 좁힌다 (reviewer·orchestrator 에 Edit 없음). 다만 `Write`·`Bash` 우회까지 막지는 못한다 — `references/catalog.md` 의 강제 수준 표 참고.
+- **검증되지 않은 spec 으로 실행하지 않는다**: Phase 3 의 `validate-spec.py` 가 exit 1 이면 승인을 요청하지 않는다.
+- **`allowed-tools` 의 Bash 가 넓은 이유**: 게이트 명령이 프로젝트마다 달라 화이트리스트가 불가능하다. 대신 각 에이전트의 `tools` 로 경계를 좁히고, `guard-readonly.py` 훅이 읽기 전용 역할(reviewer·orchestrator·dependency-mapper)의 소스 쓰기를 실제로 거부한다 — `references/catalog.md` 의 강제 수준 표 참고.
 - **이식성**: `.claude/skills/harness-architect/` + `.claude/agents/*.md` 를 통째로 복사하면 별도 설치 없이 다른 저장소에서 동작한다.

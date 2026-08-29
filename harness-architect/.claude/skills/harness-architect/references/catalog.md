@@ -33,13 +33,24 @@
 
 | 경계 | 강제 수준 |
 |---|---|
-| reviewer·orchestrator 가 `Edit` 으로 소스 수정 | **도구가 차단** |
-| reviewer·orchestrator 가 `Bash` 로 소스 수정 | 프롬프트 준수에만 의존 (미차단) |
-| dependency-mapper 가 `Bash` 로 파일 생성 | 프롬프트 준수에만 의존 (미차단) |
+| reviewer·orchestrator 가 `Edit`/`Write` 로 소스 수정 | **도구 + 훅이 차단** |
+| reviewer·orchestrator 가 `Bash` 로 소스 수정 (`sed -i`·리다이렉션·`rm`·`git commit` 등) | **훅이 차단** |
+| dependency-mapper 가 어떤 경로로든 파일 생성 | **훅이 차단** (조사 전용) |
+| 위 역할이 변수 확장·base64·인터프리터 파이프로 우회 | 프롬프트 준수에만 의존 (미차단) |
 
-`Write` 는 각 역할이 보고서를 내는 데 필요하고, `Bash` 는 게이트·검색에 필요해서 남겨 두었다.
-**진짜로 차단하려면** 세션 권한 규칙이나 `PreToolUse` 훅으로 소스 경로 쓰기를 막아야 한다.
-현재 이 스킬은 그 훅을 제공하지 않는다 — 알려진 한계이며 `CHECKLIST.md` B-3 에 기록되어 있다.
+`Write` 는 reviewer·orchestrator 가 보고서·DAG 상태를 내는 데 필요하고 `Bash` 는 검색·게이트에
+필요해서 `tools` 에서 빼지 않았다. 대신 `scripts/guard-readonly.py` 를 `PreToolUse` 훅으로 걸어
+**쓰기 대상 경로**로 판정한다 — reviewer·orchestrator 는 `_workspace/` 아래만,
+dependency-mapper 는 아무 데도 쓰지 못한다.
+
+**이것은 샌드박스가 아니다.** 훅은 셸을 파싱하지 않고 쓰기 구문을 패턴으로 찾으므로
+변수 확장이나 인터프리터 경유는 잡지 못한다. 규율 장치이지 보안 경계가 아니다.
+
+`implementer`·`integrator` 는 소스를 고치는 것이 일이라 가드 대상이 아니고,
+`baseline-tester` 는 특성화 테스트를 레포의 테스트 디렉터리에 써야 해서 제외했다.
+
+설치법은 `../../../README.md` 의 "훅 설치" 절 참고. 훅을 걸지 않아도 스킬은 동작하지만,
+그때 이 표의 "훅이 차단" 행은 전부 "프롬프트 준수에만 의존" 으로 내려간다.
 | `deployment-agent` | sonnet | Read, Bash, Write | 배포·헬스체크·롤백 준비 | Human Gate 없이는 실행하지 않는다 |
 
 ### 카탈로그에 없는 것과 그 이유

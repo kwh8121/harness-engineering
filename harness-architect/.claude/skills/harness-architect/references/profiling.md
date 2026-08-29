@@ -25,6 +25,11 @@
 **parallelism** — `coupling: low` 인 작업 단위의 개수다. `coupling: high` 면 `parallelism` 은 자동으로
 `none` 이다. 이 둘이 동시에 높을 수 없다.
 
+> **주의**: `parallelism: none` 은 **작업 단위가 1개라는 뜻이 아니다.** 동시에 못 돌린다는 뜻일 뿐이다.
+> 순서 의존으로 묶인 단위 3개도 `parallelism: none` 이고, 그것이 바로 DAG(H3)가 필요한 형태다.
+> 단위 개수는 `parallelism` 이 아니라 "구현자 한 명이 한 번에 끝까지 들고 갈 수 있는가"로 센다
+> (`routing.md` STEP 2).
+
 **uncertainty** — 다음 중 하나라도 해당하면 최소 `medium`:
 - 변경 대상의 현재 동작을 고정하는 테스트가 없다
 - 호출부를 전부 열거할 수 없다

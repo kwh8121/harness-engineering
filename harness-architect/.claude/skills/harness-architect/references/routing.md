@@ -15,14 +15,19 @@ Always choose the least complex harness that can safely complete the task.
 STEP 1  단일 세션·단일 컨텍스트로 안전하게 완료 가능한가?
         (변경 영역 1개 AND risk ≤ low AND uncertainty = low)
         YES → H0
+        NO  ↓
 
-STEP 2  순차 분리 + 독립 Reviewer 면 충분한가?
-        (독립 실행 가능 작업 단위가 1개 = parallelism: none)
+STEP 2  작업 단위가 1개인가?
+        판정 질문: "구현자 한 명이 한 번에 끝까지 들고 갈 수 있는가?"
+        여러 영역을 건드려도, 중간 산출물을 따로 검증할 수 없어 통째로 가야 하면 단위는 1개다.
         YES → H1
+        NO  ↓   (단위가 2개 이상 — 병렬이든 순차든)
 
-STEP 3  독립 실행 가능한 작업 단위가 2개 이상인가?
-        (parallelism ≥ some AND 동일 파일 수정 충돌 위험 낮음 AND 병렬화로 실제 시간 절약)
-        세 조건 AND 다. 하나라도 아니면 → H1
+STEP 3  그 단위들이 서로 독립인가?
+        (동시 실행 가능 AND 동일 파일 수정 충돌 위험 낮음 AND 병렬화로 실제 시간 절약)
+        세 조건 AND 다.
+        YES → STEP 4
+        NO (순서 의존이 있다) → STEP 4
 
 STEP 4  작업 간 Dependency 가 있거나 실패 원인별 재라우팅이 필요한가?
         NO  → H2
@@ -33,13 +38,35 @@ STEP 5  side_effect ∈ {irreversible} 이거나 target_environment = production
         YES → 레벨과 무관하게 human_gate.required = true
 ```
 
+**STEP 2 가 판정의 갈림길이다.** `parallelism: none` 은 "단위가 1개"라는 뜻이 아니다.
+동시에 못 돌린다는 뜻일 뿐이고, 순서 의존으로 묶인 여러 단위는 여전히 여러 단위다 —
+그리고 그것이 바로 DAG(H3)가 필요한 형태다.
+
 ### 승격을 막는 반례
 
-- "영역이 3개니까 워커 3명" — **아니다.** 3영역이 하나의 흐름으로 묶여 있으면 독립 단위는 1개고 H1 이다.
+- "영역이 3개니까 워커 3명" — **아니다.** 3영역이 하나의 흐름으로 묶여 있어 구현자 한 명이
+  통째로 들고 가야 하면 단위는 1개고 H1 이다. (예: FE 폼 + 업로드 API + 스토리지 연동)
 - "위험하니까 H3" — **아니다.** risk 는 레벨이 아니라 reviewer 유무·`max_loops`·Human Gate 를 바꾼다.
 - "복잡하니까 orchestrator" — **아니다.** orchestrator 는 *재라우팅*이 필요할 때만 값을 한다.
   실패 시 항상 같은 곳(implementer)으로 돌아가면 H2 로 충분하다.
 - "uncertainty 가 높으니까 H3" — **아니다.** dependency-mapper·baseline-tester 는 H1 에도 붙일 수 있다.
+
+### 강등을 막는 반례 (Under-Orchestration)
+
+승격만 막으면 반대 방향으로 틀린다. 다음도 똑같이 오답이다.
+
+- "coupling 이 high 니까 단위가 1개다" — **아니다.** 순서 의존은 "단위가 하나"라는 뜻이 아니라
+  **DAG 가 필요하다**는 뜻이다. STEP 2 는 "동시에 못 도는가"가 아니라
+  "구현자 한 명이 한 번에 끝까지 들고 갈 수 있는가"를 묻는다.
+- "parallelism 이 none 이니까 H1" — **아니다.** `parallelism` 은 STEP 3(H2 여부)에만 쓰인다.
+  STEP 2 와 STEP 4 는 `parallelism` 을 보지 않는다.
+- "순차로 하면 되니까 pipeline" — **아니다.** 순차 실행과 파이프라인은 다르다.
+  실패 원인에 따라 되돌려 보낼 곳이 달라지면(숨은 호출부 → dependency-mapper,
+  전제 오류 → baseline-tester, 구현 오류 → implementer) 파이프라인으로 표현할 수 없다.
+
+**교차 점검**: `uncertainty: high` 이고 `risk: high` 이고 단위가 2개 이상인데 H1 로 판정했다면,
+STEP 2 를 다시 본다. 이 조합에서 H1 은 거의 항상 오답이다 —
+호출부를 다 모르는 상태로 위험한 변경을 한 명에게 통째로 맡기는 것이기 때문이다.
 
 ## 레벨별 실행 절차
 

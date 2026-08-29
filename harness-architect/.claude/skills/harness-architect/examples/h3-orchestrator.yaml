@@ -21,7 +21,8 @@ task:
 profile:
   scope: many
   coupling: high
-  parallelism: some
+  parallelism: none      # coupling: high 이므로 자동으로 none.
+                         # 단위가 1개라는 뜻이 아니다 — 순서 의존으로 묶인 단위가 3개다.
   uncertainty: high
   risk: high
   side_effect: irreversible
@@ -30,9 +31,10 @@ harness:
   level: H3
   pattern: dag
   rationale: >-
-    독립 작업(스키마 이관 / OAuth 제공자 연동 / 세션 호환 계층)이 존재하지만 서로 순서
-    의존이 있고, 통합 검증 실패의 원인이 "숨은 호출부"인지 "기존 동작 오해"인지 "구현 오류"인지에
-    따라 되돌려 보낼 곳이 달라진다. 단순 fan-in 으로는 이 재라우팅을 표현할 수 없어 H2 가 아니다.
+    작업 단위(스키마 이관 / OAuth 제공자 연동 / 세션 호환 계층)가 3개이고 구현자 한 명이
+    통째로 들고 갈 수 없어 H1 이 아니다(STEP 2 NO). 단위 사이에 순서 의존이 있어 동시 실행이
+    불가능하고, 통합 검증 실패의 원인이 "숨은 호출부"인지 "기존 동작 오해"인지 "구현 오류"인지에
+    따라 되돌려 보낼 곳이 달라진다 — 단순 fan-in 으로는 이 재라우팅을 표현할 수 없어 H2 도 아니다.
 
 agents:
   - id: orchestrator
@@ -94,8 +96,8 @@ review_policy:
   escalation_after: 3
 
 parallelism:
-  enabled: true
-  max_workers: 3
+  enabled: true          # 조사 단계(dependency-mapper ‖ baseline-tester)의 동시 dispatch 용.
+  max_workers: 3         # 구현 노드는 순서 의존이 있어 순차 실행한다.
 
 human_gate:
   required: true

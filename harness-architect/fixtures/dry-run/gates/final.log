@@ -1,0 +1,9 @@
+=== [final] npm run build
+--- output
+
+> fixture-dry-run@0.0.0 build
+> next build
+
+ ✓ Compiled successfully
+--- exit 0
+

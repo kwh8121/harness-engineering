@@ -1,0 +1,16 @@
+=== [fast] npm run lint
+--- output
+
+> fixture-dry-run@0.0.0 lint
+> eslint .
+
+--- exit 0
+
+=== [fast] npm run typecheck
+--- output
+
+> fixture-dry-run@0.0.0 typecheck
+> tsc --noEmit
+
+--- exit 0
+

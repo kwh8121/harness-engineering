@@ -56,6 +56,9 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 - `evals/` — 라우팅 판정 eval (H0 / H1 / H3 기대값과 실행 기록)
 - `CHECKLIST.md` — 활용 체크리스트(Phase 별 확인 항목·거부해야 하는 판정 조합)와
   완성도 점검 체크리스트(결정론적 검증 명령·eval·**아직 검증되지 않은 영역**·이식 절차)
+- `LINEAR-DRY-RUN.md` — Linear 추적 리허설. 가상 작업 하나로 `Triage → Todo →
+  In Progress → In Review → Done` 전체 경로와 게이트 코멘트를 **사용자가 눈으로** 확인한다
+- `fixtures/dry-run/gates/` — 리허설용 게이트 로그 (성공·실패 각 1건)
 
 ## 토큰을 아끼는 세 가지 장치
 
@@ -163,7 +166,7 @@ Phase 0~5 가 진행된다. **Phase 3 에서 반드시 승인을 요청하고 �
 
 ## 결과 요약
 
-- 스크립트 테스트 검증 항목 102개 전부 통과 (`detect-stack` 30 + `run-gates` 13 + `validate-spec` 28 + `guard-readonly` 20 + `gate-summary` 11)
+- 스크립트 테스트 검증 항목 116개 전부 통과 — 런북의 코멘트 예시가 실제 스크립트 출력과 일치하는지도 테스트가 대조한다
 - 라우팅 판정 eval 3건 전부 기대값 일치 (H0 / H1 / H3): `evals/` 참고
 - SKILL.md 자체 심사: 레포의 `reviewing-skill-md` 체크리스트(구조·발견성·크기·안티패턴) 전 항목 pass
   — 이는 **문서 품질** 심사이며, 실행 검증 상태는 아래와 `CHECKLIST.md` B-3 을 본다

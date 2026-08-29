@@ -1,0 +1,14 @@
+=== [feature] npm run test
+--- output
+
+> fixture-dry-run@0.0.0 test
+> vitest run
+
+ FAIL  src/profile/avatar.test.ts > rejects oversized upload
+AssertionError: expected 200 to be 413
+ ❯ src/profile/avatar.test.ts:24:31
+
+ Test Files  1 failed (3)
+      Tests  1 failed | 7 passed (8)
+--- exit 1
+

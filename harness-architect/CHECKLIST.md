@@ -200,8 +200,8 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 - [ ] **Linear 추적이 실제 워크스페이스에서 한 번도 실행되지 않았다**
       — 매핑·정책·`gate-summary.sh` 렌더링은 확정했지만 실제 Project·Issue 생성,
       상태 전환, `blockedBy` 연결, Human Gate 대기는 미검증
-      → 확인 방법: H1 작업 하나를 `tracking.provider: linear` 로 끝까지 돌려
-      Issue 가 Triage→Todo→In Progress→In Review→Done 을 밟는지 본다
+      → 확인 방법: **`LINEAR-DRY-RUN.md` 를 1부부터 따라 돌린다.** 단계마다
+      "사용자가 화면에서 확인할 것" 이 있어 에이전트와 사람이 함께 판정한다
 - [ ] **`human_gate_approval: linear` 의 대기 상한이 정해지지 않았다**
       — 무한 대기 금지는 규칙으로만 있고 기본 상한값이 없다
       → 확인 방법: 실제 대기 모드를 한 번 돌려보고 적정 상한을 정한다

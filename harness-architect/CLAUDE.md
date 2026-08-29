@@ -14,10 +14,12 @@
 
 ## 구성
 - `.claude/skills/harness-architect/SKILL.md` — Phase 0~5 오케스트레이터
-- `.claude/skills/harness-architect/references/*.md` — profiling / routing / catalog / context-budget
+- `.claude/skills/harness-architect/references/*.md` — profiling / routing / catalog / context-budget / linear-tracking
 - `.claude/skills/harness-architect/schemas/harness-spec.yaml` — 실행 계약 스키마
 - `.claude/skills/harness-architect/examples/*.yaml` — H0~H3 판정 사례 4종
-- `.claude/skills/harness-architect/scripts/*.sh` — detect-stack / run-gates / init-workspace
+- `.claude/skills/harness-architect/scripts/` — detect-stack / run-gates / init-workspace /
+  gate-summary (셸), validate-spec / guard-readonly (파이썬)
+- `.claude/settings.json` — guard-readonly 를 PreToolUse 훅으로 등록
 - `.claude/agents/*.md` — 카탈로그 7종
 - `tests/` — 스크립트 bash 테스트 (`bash tests/run-all.sh`)
 - `fixtures/`, `evals/` — 테스트 픽스처와 라우팅 판정 eval 기록
@@ -32,6 +34,8 @@
 - 구현 워커를 동시에 여러 개 dispatch 하지 않는다 (`max_workers: 3` 은 병합 단위 수)
 - 리뷰 루프 상한 2회 (risk: high 만 3회) — 초과 시 고치지 말고 사람에게 넘긴다
 - 자동 커밋 금지, `_workspace/` 보존
+- Linear 쓰기는 컨트롤러만 한다 — 워커·orchestrator 는 상태 토큰만 반환한다
+- H0 은 Linear 에 기록하지 않는다. 추적 실패는 하네스를 멈추지 않는다
 - 이식성: `.claude/skills/harness-architect/` + `.claude/agents/*.md` 를 폴더째 복사하면 그대로 동작한다
 
 ## 참고

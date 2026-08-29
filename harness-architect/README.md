@@ -37,14 +37,16 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 ## 구성
 
 - `.claude/skills/harness-architect/SKILL.md` — Phase 0~5 오케스트레이터 (83줄)
-- `.claude/skills/harness-architect/references/` — 판정 기준 4종
+- `.claude/skills/harness-architect/references/` — 판정 기준 5종
   - `profiling.md` 6축 판정 규칙과 축별 반례
   - `routing.md` 판정 트리 + 레벨별 실행 절차 + 승격을 막는 반례
   - `catalog.md` 에이전트 7종 도구 경계 + superpowers 12종 위임 매핑
   - `context-budget.md` 에이전트별 required / optional / forbidden
+  - `linear-tracking.md` Linear 엔티티·상태 매핑과 기록 정책
 - `.claude/skills/harness-architect/schemas/harness-spec.yaml` — 실행 계약 스키마
 - `.claude/skills/harness-architect/examples/` — H0~H3 판정 사례 4종 (근거 문장 포함)
 - `.claude/skills/harness-architect/scripts/` — `detect-stack` / `run-gates` / `init-workspace`
+  / `gate-summary.sh` (게이트 결과를 Linear 코멘트용으로 렌더링)
   / `validate-spec.py` (HarnessSpec 계약 검증) / `guard-readonly.py` (읽기 전용 역할 쓰기 차단 훅)
 - `.claude/settings.json` — 위 훅을 `PreToolUse` 로 등록한다
 - `.claude/agents/` × 7 — implementer / reviewer / dependency-mapper / baseline-tester /
@@ -109,6 +111,29 @@ frontmatter 의 `tools` 가 1차 경계다.
 
 훅을 걸지 않아도 스킬은 동작한다. 다만 그때 읽기 전용 경계는 프롬프트 준수에만 의존한다.
 
+## 진행 상황은 Linear 에 남는다
+
+목적은 **사용자가 터미널을 보지 않고도 진행과 검증 근거를 파악하는 것**이다.
+
+| 하네스 | Linear |
+|---|---|
+| H1 작업 | Issue 1건 (작업 단위가 1개다) |
+| H2/H3 작업 | Project + 단위별 Issue |
+| H3 DAG 의 `depends_on` | `blockedBy` / `blocks` — Linear 가 의존을 네이티브로 표현한다 |
+| Phase 3 승인 대기 | 상태 `Triage` — Linear 의 "의도적 검토" 개념과 같다 |
+| 구현 중 / 리뷰 중 / 완료 | `In Progress` / `In Review` / `Done` |
+| 게이트 결과 | 코멘트 — 명령 + exit code + 로그 경로 (**전문은 붙이지 않는다**) |
+| Human Gate | `In Review` + 증거 코멘트 (로그 경로·diff 통계·롤백 절차) |
+
+**H0 은 추적하지 않는다.** 단일 파일 표현 계층 변경까지 이슈로 만들면 백로그가 오탈자 수정으로
+찬다 — Linear 문서의 "이슈 하나의 적정 크기" 원칙과 어긋난다.
+
+**쓰기는 컨트롤러만 한다.** 워커와 `orchestrator` 는 Linear 를 건드리지 않고 상태 토큰만
+반환한다. 워커 `tools` 에 MCP 도구를 넣으면 이식성이 깨지고, 여러 주체가 쓰면 같은 사실이
+여러 번 다르게 기록된다. 추적 실패는 하네스를 멈추지 않는다 — 관측 수단이지 실행 경로가 아니다.
+
+`tracking.provider: none` 이면 아무것도 쓰지 않는다. 상세는 `references/linear-tracking.md`.
+
 ## HarnessSpec 은 실행 전에 기계가 검증한다
 
 Phase 3 은 승인을 요청하기 전에 `validate-spec.py` 를 돌린다. exit 1 이면 승인을 요청하지 않는다.
@@ -138,7 +163,7 @@ Phase 0~5 가 진행된다. **Phase 3 에서 반드시 승인을 요청하고 �
 
 ## 결과 요약
 
-- 스크립트 테스트 검증 항목 84개 전부 통과 (`detect-stack` 30 + `run-gates` 13 + `validate-spec` 21 + `guard-readonly` 20)
+- 스크립트 테스트 검증 항목 102개 전부 통과 (`detect-stack` 30 + `run-gates` 13 + `validate-spec` 28 + `guard-readonly` 20 + `gate-summary` 11)
 - 라우팅 판정 eval 3건 전부 기대값 일치 (H0 / H1 / H3): `evals/` 참고
 - SKILL.md 자체 심사: 레포의 `reviewing-skill-md` 체크리스트(구조·발견성·크기·안티패턴) 전 항목 pass
   — 이는 **문서 품질** 심사이며, 실행 검증 상태는 아래와 `CHECKLIST.md` B-3 을 본다

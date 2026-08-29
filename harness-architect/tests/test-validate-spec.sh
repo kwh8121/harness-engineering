@@ -112,6 +112,34 @@ expect_error "E-REVIEW-LOOPS" "risk 가 high 가 아닌데 max_loops 3 을 거�
 mutate h1-pipeline.yaml 'd["harness"]["rationale"] = ""'
 expect_error "E-RATIONALE" "빈 rationale 을 거부한다"
 
+# --- tracking: H0 은 추적하지 않는다 ---
+mutate h0-single.yaml 'd["tracking"] = {"provider":"linear","team":"Koreatimes","mode":"issue","human_gate_approval":"terminal"}'
+expect_error "E-TRACKING" "H0 에 Linear 추적을 붙이는 것을 거부한다"
+
+# --- tracking: H1 은 issue 모드여야 한다 ---
+mutate h1-pipeline.yaml 'd["tracking"]["mode"] = "project"'
+expect_error "E-TRACKING" "H1 에 project 모드를 거부한다"
+
+# --- tracking: H2/H3 는 project 모드여야 한다 ---
+mutate h2-fanout.yaml 'd["tracking"]["mode"] = "issue"'
+expect_error "E-TRACKING" "H2 에 issue 모드를 거부한다"
+
+# --- tracking: provider 가 linear 면 team 이 필요하다 ---
+mutate h1-pipeline.yaml 'del d["tracking"]["team"]'
+expect_error "E-TRACKING" "provider linear 인데 team 누락을 거부한다"
+
+# --- tracking: 잘못된 enum ---
+mutate h1-pipeline.yaml 'd["tracking"]["human_gate_approval"] = "slack"'
+expect_error "E-TRACKING" "human_gate_approval 의 잘못된 값을 거부한다"
+
+mutate h1-pipeline.yaml 'd["tracking"]["provider"] = "jira"'
+expect_error "E-TRACKING" "지원하지 않는 provider 를 거부한다"
+
+# --- tracking: provider none 이면 나머지를 검사하지 않는다 ---
+mutate h1-pipeline.yaml 'd["tracking"] = {"provider":"none"}'
+out="$(python3 "$VALIDATOR" "$TMP/spec.yaml" 2>&1)"; rc=$?
+assert_exit_code 0 "$rc" "provider none 은 통과한다 (추적 없이도 하네스는 동작한다)"
+
 # --- 필수 최상위 키 누락 ---
 mutate h1-pipeline.yaml 'del d["review_policy"]'
 expect_error "E-REQUIRED" "필수 최상위 키 누락을 거부한다"

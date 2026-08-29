@@ -74,6 +74,14 @@ parallelism:
 human_gate:
   required: false
 
+tracking:
+  provider: linear
+  team: Koreatimes
+  mode: issue            # 작업 단위가 1개이므로 Issue 1건. Project 를 만들 성과물이 아니다
+  issue:
+    id:                  # 생성 후 채워진다 (예: KOR-142)
+  human_gate_approval: terminal
+
 escalation:
   if_hidden_dependency: dependency-mapper
   if_baseline_unknown: baseline-tester

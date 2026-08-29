@@ -42,6 +42,10 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 - [ ] **승인을 요청받기 전에 에이전트가 스폰되지 않았다**
 - [ ] `_workspace/harness/spec.yaml` 이 실제 파일로 존재한다 (대화 속 요약이 아니라)
 - [ ] 요약에 레벨·에이전트와 모델·게이트·`max_loops`·Human Gate 가 전부 있다
+- [ ] **추적 대상이 만들어졌고 상태가 `Triage` 다** (`tracking.provider: linear` 인 경우)
+      — H1 은 Issue 1건, H2/H3 는 Project + 단위별 Issue. H3 이면 `depends_on` 이
+      `blockedBy` 로 걸려 있는가? 링크를 요약에 보였는가?
+      (H0 은 추적하지 않는 것이 정상이다)
 - [ ] **수용 기준마다 그것을 확인하는 게이트가 있다** — `verification.local`/`final` 의 tier 를
       합쳤을 때 `gates.tsv` 의 해당 명령이 실제로 포함되는가?
       게이트로 확인 불가능한 항목은 `verification.manual` 에 있는가?
@@ -57,6 +61,9 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 - [ ] 리뷰 루프가 `max_loops` 를 넘지 않았다. 넘었으면 고치지 않고 사람에게 넘겼다
 - [ ] 같은 게이트가 3회 연속 실패했을 때 추측 수정을 멈추고 `systematic-debugging` 으로 갔다
 - [ ] (H2/H3) `dependency-mapper` 가 `INDEPENDENCE: REJECTED` 를 냈다면 레벨을 강등하고 **재승인**받았다
+- [ ] **Linear 를 컨트롤러만 썼다** — 워커·orchestrator 의 응답에 Linear 도구 호출이 없다
+- [ ] **게이트 코멘트에 로그 전문이 붙지 않았다** — `gate-summary.sh` 출력(명령·exit code·경로)만
+- [ ] **Phase 전환마다 코멘트 1건**을 넘지 않았다. 리뷰 루프는 종료 시 1건으로 요약했다
 
 ## A-4. Phase 5 종료
 
@@ -135,6 +142,12 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
       ```
       → 기대: `통과 (경고 0건)` 4줄
 
+- [ ] **게이트 요약이 로그 전문을 흘리지 않는다**
+      ```bash
+      bash tests/test-gate-summary.sh
+      ```
+      → 기대: 전부 PASS. 특히 "로그 전문을 붙이지 않는다" 항목
+
 - [ ] **읽기 전용 가드 훅이 소스 쓰기를 거부한다**
       ```bash
       echo '{"hook_event_name":"PreToolUse","agent_type":"reviewer","agent_id":"s1",
@@ -184,6 +197,14 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
       — `guard-readonly.py` 는 단위 테스트(합성 훅 입력 21건)로만 확인했다.
       실제로 `agent_type` 이 `reviewer` 로 실려 오는지, 훅이 실제 dispatch 를 막는지는 미검증
       → 확인 방법: reviewer 를 실제 dispatch 해 소스 수정을 지시하고 거부되는지 본다
+- [ ] **Linear 추적이 실제 워크스페이스에서 한 번도 실행되지 않았다**
+      — 매핑·정책·`gate-summary.sh` 렌더링은 확정했지만 실제 Project·Issue 생성,
+      상태 전환, `blockedBy` 연결, Human Gate 대기는 미검증
+      → 확인 방법: H1 작업 하나를 `tracking.provider: linear` 로 끝까지 돌려
+      Issue 가 Triage→Todo→In Progress→In Review→Done 을 밟는지 본다
+- [ ] **`human_gate_approval: linear` 의 대기 상한이 정해지지 않았다**
+      — 무한 대기 금지는 규칙으로만 있고 기본 상한값이 없다
+      → 확인 방법: 실제 대기 모드를 한 번 돌려보고 적정 상한을 정한다
 - [ ] **가드 훅의 우회 경로가 열려 있다** (설계상 한계)
       — 셸을 파싱하지 않고 쓰기 구문을 패턴으로 찾으므로 변수 확장, base64,
       인터프리터 파이프는 잡지 못한다. **샌드박스가 아니라 규율 장치다**

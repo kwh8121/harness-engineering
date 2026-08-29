@@ -116,6 +116,14 @@ human_gate:
   reason: 프로덕션 사용자 인증과 되돌릴 수 없는 DB 마이그레이션을 건드린다
   before: 마이그레이션 실행 전, 그리고 배포 전 (2회)
 
+tracking:
+  provider: linear
+  team: Koreatimes
+  mode: project
+  project:
+    name: "인증 전환 — JWT → OAuth"
+  human_gate_approval: both   # 마이그레이션·배포 승인은 자리를 비운 사이에도 받을 수 있게
+
 escalation:
   if_hidden_dependency: dependency-mapper
   if_baseline_unknown: baseline-tester

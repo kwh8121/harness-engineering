@@ -97,6 +97,14 @@ parallelism:
 human_gate:
   required: false
 
+tracking:
+  provider: linear
+  team: Koreatimes
+  mode: project          # 병합 단위 3개를 하나의 성과물로 묶는다
+  project:
+    name: "포트 인터페이스 이관 (Repository·Cache·Logging)"
+  human_gate_approval: terminal
+
 escalation:
   if_hidden_dependency: dependency-mapper
   if_baseline_unknown: baseline-tester

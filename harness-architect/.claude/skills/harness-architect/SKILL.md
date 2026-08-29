@@ -50,9 +50,13 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
    - exit 1 → **계약 위반이다. 승인을 요청하지 말고 spec 을 고쳐 재검증한다.**
    - exit 2 → 검증기를 돌릴 수 없다(PyYAML 부재 등). 그 사실을 사용자에게 알리고
      `CHECKLIST.md` A-2 를 손으로 확인한다.
-3. **한 화면 요약**을 제시한다: 레벨 + 근거 / 에이전트와 모델 / 게이트 / 리뷰 루프 상한 /
-   Human Gate 여부와 사유 / 병렬도. validator 경고가 있으면 함께 보인다.
-4. **승인을 받는다.**
+3. `tracking.provider: linear` 면 추적 대상을 만든다 (`references/linear-tracking.md`).
+   H1 은 Issue 1건, H2/H3 는 Project + 단위별 Issue. 상태는 `Triage`(= 승인 대기),
+   description 에 spec 요약. H3 은 DAG 의 `depends_on` 을 `blockedBy` 로 건다.
+   **쓰기 실패는 작업을 멈추지 않는다** — 한 줄로 알리고 진행한다.
+4. **한 화면 요약**을 제시한다: 레벨 + 근거 / 에이전트와 모델 / 게이트 / 리뷰 루프 상한 /
+   Human Gate 여부와 사유 / 병렬도 / 추적 링크. validator 경고가 있으면 함께 보인다.
+5. **승인을 받는다.** 승인되면 상태를 `Triage` → `Todo` 로 올린다.
 
 ## Phase 4 — 실행
 
@@ -66,11 +70,21 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
   → `superpowers:subagent-driven-development`(워커 순차) → integrator → reviewer.
 - **H3** — H2 + orchestrator 가 DAG 관리와 실패 원인별 재라우팅.
 
+추적 중이면 각 단위의 Linear 상태를 전환한다: 착수 `In Progress` → 게이트 통과 `In Review`
+→ 리뷰 `VERDICT: PASS` 시 `Done`. 게이트 실행 뒤에는
+`Bash: bash .claude/skills/harness-architect/scripts/gate-summary.sh <tier>` 출력을 코멘트 1건으로 남긴다
+(**로그 전문은 붙이지 않는다**). 리뷰는 종료 시 1건으로 요약하고, 루프 상한을 넘긴 미해결
+BLOCKER 는 sub-issue 로 승격한다.
+
 ## Phase 5 — 종료
 
 1. `Bash: bash .claude/skills/harness-architect/scripts/run-gates.sh final`
 2. **REQUIRED SUB-SKILL:** Use superpowers:verification-before-completion.
 3. `human_gate.required` 면 증거(게이트 로그 경로 + diff 통계 + 롤백 절차)를 제시하고 멈춘다.
+   추적 중이면 상태를 `In Review` 로 두고 같은 증거를 코멘트로 남긴다.
+   `tracking.human_gate_approval` 이 `linear`/`both` 면 사용자가 Linear 에서 `Todo` 로 바꿀 때까지
+   기다린다 — **무한 대기하지 않는다.** 상한에 닿으면 알리고 멈춘다.
+   완료되면 상태를 `Done` 으로 올리고 최종 게이트 결과를 코멘트로 남긴다.
 4. 브랜치 마무리가 필요하면 **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch.
 
 ## 불변 규칙
@@ -85,5 +99,7 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 - **리뷰 루프 상한**: `max_loops`(기본 2, risk: high 만 3) 초과 시 고치지 말고 사람에게 넘긴다. MINOR·NIT 는 루프를 막지 않는다.
 - **자동 커밋 금지 / workspace 보존**: `git commit` 을 호출하지 않고, 종료 후에도 `_workspace/` 를 삭제하지 않는다.
 - **검증되지 않은 spec 으로 실행하지 않는다**: Phase 3 의 `validate-spec.py` 가 exit 1 이면 승인을 요청하지 않는다.
+- **Linear 쓰기는 컨트롤러만 한다**: 워커와 orchestrator 는 Linear 를 건드리지 않는다. 상태 토큰만 반환하고 컨트롤러가 번역한다. 추적 실패는 하네스를 멈추지 않는다 — 관측 수단이지 실행 경로가 아니다.
+- **H0 은 추적하지 않는다**: 단일 파일·저위험 변경까지 이슈로 만들면 백로그가 오탈자 수정으로 찬다.
 - **`allowed-tools` 의 Bash 가 넓은 이유**: 게이트 명령이 프로젝트마다 달라 화이트리스트가 불가능하다. 대신 각 에이전트의 `tools` 로 경계를 좁히고, `guard-readonly.py` 훅이 읽기 전용 역할(reviewer·orchestrator·dependency-mapper)의 소스 쓰기를 실제로 거부한다 — `references/catalog.md` 의 강제 수준 표 참고.
 - **이식성**: `.claude/skills/harness-architect/` + `.claude/agents/*.md` 를 통째로 복사하면 별도 설치 없이 다른 저장소에서 동작한다.

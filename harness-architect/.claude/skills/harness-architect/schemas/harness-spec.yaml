@@ -74,6 +74,19 @@ human_gate:
   reason:                # required: true 일 때 필수. 어떤 부작용 때문인지 한 문장.
   before:                # 승인을 받아야 하는 시점. 예: "마이그레이션 실행 전"
 
+tracking:                # 진행 상황을 사람이 읽을 수 있는 곳에 남긴다. references/linear-tracking.md
+  provider: none         # linear | none.  H0 은 항상 none (단일 변경까지 이슈로 만들지 않는다)
+  team:                  # provider: linear 일 때 필수. Linear 팀 이름 또는 ID
+  mode:                  # issue (H1) | project (H2/H3). 레벨과 일치해야 한다
+  project:               # mode: project 일 때. 기존 프로젝트에 붙이려면 id 를 준다
+    name:
+    id:
+  issue:                 # mode: issue 일 때. 생성 후 식별자가 채워진다 (예: KOR-123)
+    id:
+  human_gate_approval: terminal   # terminal | linear | both
+                         # linear·both 는 사용자가 Linear 에서 상태를 바꿀 때까지 기다린다.
+                         # 무한 대기하지 않는다 — 상한에 닿으면 사용자에게 알리고 멈춘다.
+
 escalation:              # 실패 원인별 재라우팅 대상 (H3 의 Feedback Router 가 사용)
   if_hidden_dependency: dependency-mapper
   if_baseline_unknown: baseline-tester

@@ -54,8 +54,14 @@ TIERS = {"fast", "feature", "final"}
 REQUIRED_TOP = [
     "harness_version", "task", "profile", "harness", "agents",
     "controller_skills", "agent_skills", "context",
-    "verification", "review_policy", "parallelism", "human_gate",
+    "verification", "review_policy", "parallelism", "human_gate", "tracking",
 ]
+
+TRACKING_PROVIDERS = {"linear", "none"}
+TRACKING_MODES = {"issue", "project"}
+APPROVAL_PATHS = {"terminal", "linear", "both"}
+# 레벨별로 허용되는 추적 모드. H0 은 추적하지 않는다.
+LEVEL_TRACKING_MODE = {"H1": "issue", "H2": "project", "H3": "project"}
 
 # 수용 기준이 테스트 통과를 요구하는지 판별할 때 쓰는 표지
 TEST_WORDS = ("테스트", "test", "spec 통과", "회귀")
@@ -293,6 +299,61 @@ def check_context(spec, agent_ids, r):
             r.warn("W-CONTEXT", f"context.{aid}", "이 spec 의 agents 에 없는 에이전트다")
 
 
+def check_tracking(spec, r):
+    t = spec.get("tracking")
+    if t is None:
+        return                      # E-REQUIRED 가 이미 잡는다
+    if not isinstance(t, dict):
+        r.error("E-TRACKING", "tracking", "매핑이어야 한다")
+        return
+
+    provider = t.get("provider")
+    if provider not in TRACKING_PROVIDERS:
+        r.error("E-TRACKING", "tracking.provider",
+                f"'{provider}' 는 지원하지 않는다. 가능: {sorted(TRACKING_PROVIDERS)}")
+        return
+    if provider == "none":
+        return                      # 추적하지 않으면 나머지는 볼 필요가 없다
+
+    level = get(spec, "harness", "level")
+    if level == "H0":
+        r.error("E-TRACKING", "tracking.provider",
+                "H0 은 추적하지 않는다 (provider: none). 단일 파일·저위험 변경까지 "
+                "이슈로 만들면 백로그가 오탈자 수정으로 찬다")
+        return
+
+    if not str(t.get("team") or "").strip():
+        r.error("E-TRACKING", "tracking.team",
+                "provider: linear 면 team 이 필요하다 (Linear 팀 이름 또는 ID)")
+
+    mode = t.get("mode")
+    if mode not in TRACKING_MODES:
+        r.error("E-TRACKING", "tracking.mode",
+                f"'{mode}' 는 지원하지 않는다. 가능: {sorted(TRACKING_MODES)}")
+    elif level in LEVEL_TRACKING_MODE and mode != LEVEL_TRACKING_MODE[level]:
+        want = LEVEL_TRACKING_MODE[level]
+        why = ("작업 단위가 1개이므로 Issue 1건이다"
+               if want == "issue" else
+               "여러 단위를 하나의 성과물로 묶으므로 Project 다")
+        r.error("E-TRACKING", "tracking.mode",
+                f"{level} 의 추적 모드는 '{want}' 여야 한다 (현재 '{mode}') — {why}")
+
+    if mode == "project" and not (get(spec, "tracking", "project", "name")
+                                  or get(spec, "tracking", "project", "id")):
+        r.error("E-TRACKING", "tracking.project",
+                "project 모드는 name(신규) 또는 id(기존 프로젝트 재사용) 가 필요하다")
+
+    approval = t.get("human_gate_approval")
+    if approval not in APPROVAL_PATHS:
+        r.error("E-TRACKING", "tracking.human_gate_approval",
+                f"'{approval}' 는 지원하지 않는다. 가능: {sorted(APPROVAL_PATHS)}")
+
+    if get(spec, "human_gate", "required") is True and approval == "linear":
+        r.warn("W-TRACKING", "tracking.human_gate_approval",
+               "Linear 상태 변경만으로 승인받는다. 사용자가 Linear 를 보지 않으면 "
+               "하네스가 대기 상한까지 멈춰 있게 된다")
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__.strip(), file=sys.stderr)
@@ -338,6 +399,7 @@ def main(argv):
     check_verification(spec, r, gates_path)
     check_policies(spec, r)
     check_context(spec, agent_ids, r)
+    check_tracking(spec, r)
 
     for line in r.warnings:
         print(line)

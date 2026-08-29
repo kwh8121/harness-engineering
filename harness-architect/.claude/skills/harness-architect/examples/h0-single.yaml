@@ -51,6 +51,9 @@ parallelism:
 human_gate:
   required: false
 
+tracking:
+  provider: none         # H0 은 추적하지 않는다 — 단일 파일 표현 계층 변경까지 이슈로 만들지 않는다
+
 escalation:
   if_implementation_error: implementer
   if_gate_fails_repeatedly: superpowers:systematic-debugging

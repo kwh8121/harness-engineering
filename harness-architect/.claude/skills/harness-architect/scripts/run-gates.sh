@@ -47,11 +47,11 @@ while IFS=$'\t' read -r tier cmd; do
         echo "--- output"
     } >> "$LOG"
 
-    # stdout·stderr 를 합쳐 통째로 보존한다. tee 로 화면에도 흘린다.
-    set +e
+    # stdout·stderr 를 합쳐 통째로 보존한다.
+    # 이 스크립트는 errexit(-e)을 켜지 않는다 — 게이트가 실패해도 남은 게이트를 모두 돌려야
+    # 실패가 하나인지 여럿인지 알 수 있고, 그래야 원인을 좁힐 수 있다.
     eval "$cmd" >> "$LOG" 2>&1
     rc=$?
-    set -e
 
     echo "--- exit $rc" >> "$LOG"
     echo >> "$LOG"

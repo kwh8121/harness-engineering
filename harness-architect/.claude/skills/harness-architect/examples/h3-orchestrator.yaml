@@ -49,6 +49,9 @@ agents:
   - id: implementer
     model: sonnet
     responsibility: DAG 노드 단위로 구현한다
+  - id: integrator
+    model: opus
+    responsibility: DAG 노드들의 접합부(인터페이스·머지 충돌·회귀)만 확인한다
   - id: reviewer
     model: opus
     responsibility: 인증 경계와 마이그레이션 안전성을 심사한다
@@ -56,11 +59,17 @@ agents:
     model: sonnet
     responsibility: 릴리스 아티팩트·백업·헬스체크·롤백 절차를 준비한다
 
-skills:
-  orchestrator: [superpowers:writing-plans, superpowers:subagent-driven-development]
-  dependency-mapper: [superpowers:dispatching-parallel-agents]
+controller_skills:                            # orchestrator 가 소유한다 (Agent 도구를 가진 유일한 역할)
+  - superpowers:using-git-worktrees
+  - superpowers:dispatching-parallel-agents
+  - superpowers:writing-plans
+  - superpowers:subagent-driven-development
+  - superpowers:requesting-code-review
+  - superpowers:verification-before-completion
+
+agent_skills:
   implementer: [superpowers:test-driven-development]
-  reviewer: [superpowers:requesting-code-review, security-review]
+  reviewer: [security-review]                 # risk: high 이므로 보안 렌즈를 주입한다
 
 context:
   orchestrator:
@@ -75,6 +84,9 @@ context:
   implementer:
     required: [task, assigned_node_only, relevant_source, relevant_tests, dependency_report, baseline_report]
     forbidden: [full_repository_dump, other_nodes_context]
+  integrator:
+    required: [task, worker_reports, git_diff, gate_results]
+    forbidden: [full_repository_dump, session_history, worker_prompts]
   reviewer:
     required: [task, acceptance_criteria, git_diff, gate_results, baseline_report]
     forbidden: [full_repository_dump, session_history]

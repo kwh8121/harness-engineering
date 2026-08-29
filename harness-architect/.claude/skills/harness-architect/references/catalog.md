@@ -24,6 +24,22 @@
 | `baseline-tester` | sonnet | Read, Grep, Glob, Bash, Write | 기존 동작 고정 | 테스트 파일만 Write. 소스 수정 금지 |
 | `integrator` | opus | Read, Grep, Glob, Bash, Edit, Write | 병렬 결과 통합 | 머지 충돌 해소를 위해 Edit 필요 |
 | `orchestrator` | opus | Agent, Read, Bash, Write | DAG·상태·재라우팅 | **Edit 없음** — Orchestrator 는 코드를 쓰지 않는다 |
+
+### `tools` 가 실제로 막아주는 것과 막아주지 못하는 것
+
+`Edit` 을 빼면 **기존 파일을 고치는 정식 경로**가 사라진다. 그것이 전부다.
+`Write` 는 새 파일을 쓸 수 있고, `Bash` 는 리다이렉션·`sed -i` 로 무엇이든 바꿀 수 있다.
+`reviewer`·`orchestrator`(`Write`+`Bash`)와 `dependency-mapper`(`Bash`)가 여기 해당한다.
+
+| 경계 | 강제 수준 |
+|---|---|
+| reviewer·orchestrator 가 `Edit` 으로 소스 수정 | **도구가 차단** |
+| reviewer·orchestrator 가 `Bash` 로 소스 수정 | 프롬프트 준수에만 의존 (미차단) |
+| dependency-mapper 가 `Bash` 로 파일 생성 | 프롬프트 준수에만 의존 (미차단) |
+
+`Write` 는 각 역할이 보고서를 내는 데 필요하고, `Bash` 는 게이트·검색에 필요해서 남겨 두었다.
+**진짜로 차단하려면** 세션 권한 규칙이나 `PreToolUse` 훅으로 소스 경로 쓰기를 막아야 한다.
+현재 이 스킬은 그 훅을 제공하지 않는다 — 알려진 한계이며 `CHECKLIST.md` B-3 에 기록되어 있다.
 | `deployment-agent` | sonnet | Read, Bash, Write | 배포·헬스체크·롤백 준비 | Human Gate 없이는 실행하지 않는다 |
 
 ### 카탈로그에 없는 것과 그 이유
@@ -39,20 +55,27 @@
 
 절차적 지식은 직접 쓰지 않고 아래로 위임한다. 활성 버전은 **superpowers 6.3.0**.
 
-| 상황 | 위임 대상 | 적용 레벨 |
-|---|---|---|
-| 목표·수용 기준이 불명확해 프로파일링 불가 | `superpowers:brainstorming` | 전 레벨 (Phase 0) |
-| 다단계 작업의 계획 수립 | `superpowers:writing-plans` | H2, H3 |
-| 계획을 서브에이전트로 실행 | `superpowers:subagent-driven-development` | H2, H3 |
-| 독립 조사 2건 이상을 동시에 | `superpowers:dispatching-parallel-agents` | 전 레벨 |
-| implementer 의 기본 작업 방식 | `superpowers:test-driven-development` | H1–H3 |
-| reviewer 호출 방법·심사 기준 | `superpowers:requesting-code-review` | H1–H3 |
-| 리뷰 피드백 수신·반영 | `superpowers:receiving-code-review` | H1–H3 |
-| 게이트가 반복 실패, 원인 불명 | `superpowers:systematic-debugging` | 전 레벨 |
-| 완료 선언 직전 | `superpowers:verification-before-completion` | **전 레벨 필수** |
-| 작업 공간 격리 | `superpowers:using-git-worktrees` | H2, H3 |
-| 브랜치 마무리 (머지·PR·유지) | `superpowers:finishing-a-development-branch` | H1–H3 |
-| `risk: high` 인 diff 의 보안 심사 | 내장 `security-review` 스킬 | reviewer 에 주입 |
+**두 종류를 섞지 않는다.** 워커에게는 `Agent` 도구가 없다 —
+다른 에이전트를 부르는 스킬을 워커 프롬프트에 주입하면 실행되지 않는다.
+
+- `controller_skills` — 하네스를 운전하는 쪽이 직접 호출한다.
+  H0~H2 는 harness-architect 스킬 자신이, H3 은 `orchestrator` 가 소유한다.
+- `agent_skills` — 워커 프롬프트에 주입한다. 자기 작업만 하는 스킬이어야 한다.
+
+| 상황 | 위임 대상 | 소유 | 적용 레벨 |
+|---|---|---|---|
+| 목표·수용 기준이 불명확해 프로파일링 불가 | `superpowers:brainstorming` | controller | 전 레벨 (Phase 0) |
+| 다단계 작업의 계획 수립 | `superpowers:writing-plans` | controller | H2, H3 |
+| 계획을 서브에이전트로 실행 | `superpowers:subagent-driven-development` | controller | H2, H3 |
+| 독립 조사 2건 이상을 동시에 | `superpowers:dispatching-parallel-agents` | controller | 전 레벨 |
+| reviewer 호출 방법·심사 기준 | `superpowers:requesting-code-review` | controller | H1–H3 |
+| 작업 공간 격리 | `superpowers:using-git-worktrees` | controller | H2, H3 |
+| 완료 선언 직전 | `superpowers:verification-before-completion` | controller | **전 레벨 필수** |
+| 브랜치 마무리 (머지·PR·유지) | `superpowers:finishing-a-development-branch` | controller | H1–H3 |
+| implementer 의 기본 작업 방식 | `superpowers:test-driven-development` | agent (implementer) | H1–H3 |
+| 리뷰 피드백 수신·반영 | `superpowers:receiving-code-review` | agent (implementer) | H1–H3 |
+| 게이트가 반복 실패, 원인 불명 | `superpowers:systematic-debugging` | 양쪽 | 전 레벨 |
+| `risk: high` 인 diff 의 보안 심사 | 내장 `security-review` | agent (reviewer) | risk: high |
 
 **표기 관례**: 산문에서 `**REQUIRED SUB-SKILL:** Use superpowers:<name>` 형태로 지시한다
 (superpowers 자신의 관례를 그대로 따른다).

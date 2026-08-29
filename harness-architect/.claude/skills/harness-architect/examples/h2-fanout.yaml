@@ -48,10 +48,16 @@ agents:
     model: opus
     responsibility: 통합 diff 를 수용 기준 기준으로 심사한다
 
-skills:
-  dependency-mapper: [superpowers:dispatching-parallel-agents]
-  implementer: [superpowers:test-driven-development, superpowers:subagent-driven-development]
-  reviewer: [superpowers:requesting-code-review]
+controller_skills:                            # 전부 Agent 도구가 필요하다 — 워커에 주입하면 실행되지 않는다
+  - superpowers:using-git-worktrees
+  - superpowers:dispatching-parallel-agents   # 조사 2인 동시 dispatch
+  - superpowers:writing-plans
+  - superpowers:subagent-driven-development   # 워커 태스크 루프
+  - superpowers:requesting-code-review
+  - superpowers:verification-before-completion
+
+agent_skills:
+  implementer: [superpowers:test-driven-development]
 
 context:
   dependency-mapper:

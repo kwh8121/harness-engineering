@@ -19,8 +19,44 @@ fi
 
 emit() { printf '%s\t%s\n' "$1" "$2"; }
 
-# package.json 의 "scripts" 블록에서 스크립트 이름만 뽑아낸다 (jq 의존 없음).
+# package.json 의 "scripts" 키 이름만 뽑아낸다.
+#
+# 표준 JSON 파서를 우선 쓴다. 줄 단위 텍스트 파싱은 한 줄로 압축된 package.json,
+# 값에 중괄호가 든 스크립트, scripts 뒤에 오는 다른 객체를 전부 틀리게 읽는다.
+# python3 도 node 도 없는 환경에서만 awk 폴백으로 내려간다.
 list_npm_scripts() {
+    local pkg="$1"
+
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as e:
+    sys.stderr.write('detect-stack: package.json 파싱 실패 — %s\n' % e)
+    sys.exit(1)
+for k in (d.get('scripts') or {}):
+    print(k)
+" "$pkg"
+        return $?
+    fi
+
+    if command -v node >/dev/null 2>&1; then
+        node -e "
+const fs = require('fs');
+let d;
+try { d = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); }
+catch (e) {
+  process.stderr.write('detect-stack: package.json 파싱 실패 — ' + e.message + '\n');
+  process.exit(1);
+}
+Object.keys(d.scripts || {}).forEach(k => console.log(k));
+" "$pkg"
+        return $?
+    fi
+
+    # 폴백: 줄 단위 awk. python3·node 가 없을 때만 쓰이며 한 줄 JSON 은 읽지 못한다.
+    echo "detect-stack: python3/node 가 없어 줄 단위 폴백 파서를 씁니다 (한 줄 package.json 은 인식하지 못합니다)." >&2
     awk '
         /"scripts"[[:space:]]*:[[:space:]]*\{/ { depth=1; next }
         depth > 0 {
@@ -32,7 +68,7 @@ list_npm_scripts() {
             }
             if (print_rest) { exit }
         }
-    ' "$1"
+    ' "$pkg"
 }
 
 found=0

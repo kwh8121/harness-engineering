@@ -46,7 +46,9 @@ STEP 5  side_effect ∈ {irreversible} 이거나 target_environment = production
 
 - "영역이 3개니까 워커 3명" — **아니다.** 3영역이 하나의 흐름으로 묶여 있어 구현자 한 명이
   통째로 들고 가야 하면 단위는 1개고 H1 이다. (예: FE 폼 + 업로드 API + 스토리지 연동)
-- "위험하니까 H3" — **아니다.** risk 는 레벨이 아니라 reviewer 유무·`max_loops`·Human Gate 를 바꾼다.
+- "위험하니까 H3" — **아니다.** risk 는 레벨을 바꾸지 않는다. reviewer 유무와 `max_loops`(high 면 3)만
+  바꾼다. **Human Gate 는 risk 가 아니라 STEP 5(`side_effect`·`target_environment`·시크릿·삭제)가 정한다** —
+  `risk: high` 인데 로컬 코드 변경만이면 Human Gate 는 false 다.
 - "복잡하니까 orchestrator" — **아니다.** orchestrator 는 *재라우팅*이 필요할 때만 값을 한다.
   실패 시 항상 같은 곳(implementer)으로 돌아가면 H2 로 충분하다.
 - "uncertainty 가 높으니까 H3" — **아니다.** dependency-mapper·baseline-tester 는 H1 에도 붙일 수 있다.
@@ -68,16 +70,32 @@ STEP 5  side_effect ∈ {irreversible} 이거나 target_environment = production
 STEP 2 를 다시 본다. 이 조합에서 H1 은 거의 항상 오답이다 —
 호출부를 다 모르는 상태로 위험한 변경을 한 명에게 통째로 맡기는 것이기 때문이다.
 
+## 게이트 실행 규칙 (전 레벨 공통)
+
+`HarnessSpec` 의 `verification.local` 과 `verification.final` 에 선언한 tier 는 **하나도 빠짐없이**
+실행한다. 레벨이 낮다고 tier 를 줄이지 않는다.
+
+`run-gates.sh` 는 해당 tier 에 명령이 하나도 없으면 통과로 처리한다 — 이것은 "검증할 게 없다"는
+뜻이지 "검증이 필요 없다"는 뜻이 아니다. 따라서 spec 을 쓸 때 다음을 확인한다:
+
+> **수용 기준마다 그것을 확인하는 게이트 명령이 `gates.tsv` 안에 있는가?**
+> 없으면 `verification.manual` 에 적는다. 어느 쪽에도 없으면 그 수용 기준은 검증되지 않는다.
+
+예: 수용 기준이 "기존 테스트가 계속 통과한다"인데 `local`·`final` 어디에도 `feature` tier 가
+없으면 spec 이 잘못된 것이다. `detect-stack.sh` 는 단위 테스트를 `feature` 로 분류한다.
+
 ## 레벨별 실행 절차
 
 ### H0 — Single (에이전트 0)
 
 1. 직접 구현한다. 서브에이전트를 스폰하지 않는다.
 2. `run-gates.sh fast` → 실패하면 고치고 재실행.
-3. `run-gates.sh final`.
-4. **REQUIRED SUB-SKILL:** Use superpowers:verification-before-completion 후 종료.
+3. `run-gates.sh feature` → 실패하면 고치고 재실행.
+   **H0 라고 테스트를 건너뛰지 않는다.** 에이전트 수가 0일 뿐 검증은 다른 레벨과 같다.
+4. `run-gates.sh final`.
+5. **REQUIRED SUB-SKILL:** Use superpowers:verification-before-completion 후 종료.
 
-게이트가 2회 연속 같은 이유로 실패하면 추측으로 고치지 말고
+같은 게이트가 3회 연속 실패하면 추측으로 고치지 말고
 **REQUIRED SUB-SKILL:** Use superpowers:systematic-debugging.
 
 ### H1 — Pipeline (implementer + reviewer)

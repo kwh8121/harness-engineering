@@ -54,6 +54,27 @@ assert_contains "$out" "$(printf 'fast\tgo vet ./...')"     "go-mod: go vet → 
 assert_contains "$out" "$(printf 'feature\tgo test ./...')" "go-mod: go test → feature"
 assert_contains "$out" "$(printf 'final\tgo build ./...')"  "go-mod: go build → final"
 
+# --- 한 줄로 압축된 package.json (prettier 미적용·번들러 산출물에서 흔하다) ---
+out="$(bash "$SCRIPT" "$FIXTURES/node-oneline" 2>/dev/null)"
+rc=$?
+assert_exit_code 0 "$rc" "node-oneline: exit 0"
+assert_contains "$out" "$(printf 'fast\tnpm run lint')"    "node-oneline: 한 줄 JSON 에서 lint 추출"
+assert_contains "$out" "$(printf 'feature\tnpm run test')" "node-oneline: 한 줄 JSON 에서 test 추출"
+assert_contains "$out" "$(printf 'final\tnpm run build')"  "node-oneline: 한 줄 JSON 에서 build 추출"
+
+# --- scripts 뒤의 다른 객체 키를 스크립트로 오인하지 않는다 ---
+out="$(bash "$SCRIPT" "$FIXTURES/node-nested" 2>/dev/null)"
+rc=$?
+assert_exit_code 0 "$rc" "node-nested: exit 0"
+assert_contains "$out" "$(printf 'fast\tnpm run lint')"    "node-nested: 값에 중괄호가 있어도 lint 추출"
+assert_contains "$out" "$(printf 'feature\tnpm run test')" "node-nested: test 추출"
+if [[ "$out" == *"run build"* || "$out" == *"run typecheck"* ]]; then
+    echo "FAIL: node-nested: dependencies 의 키를 스크립트로 오인했다"
+    FAILURES=$((FAILURES + 1))
+else
+    echo "PASS: node-nested: scripts 블록 밖의 키를 스크립트로 오인하지 않는다"
+fi
+
 # --- unknown: 명령을 지어내지 않고 실패한다 ---
 out="$(bash "$SCRIPT" "$FIXTURES/unknown" 2>/dev/null)"
 rc=$?

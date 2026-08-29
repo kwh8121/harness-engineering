@@ -39,9 +39,12 @@ agents:
     model: opus
     responsibility: 수용 기준 충족 여부와 검증 로직의 회귀 위험을 diff 기준으로 심사한다
 
-skills:
+controller_skills:
+  - superpowers:requesting-code-review      # reviewer 를 부르는 쪽이 쓴다
+  - superpowers:verification-before-completion
+
+agent_skills:
   implementer: [superpowers:test-driven-development]
-  reviewer: [superpowers:requesting-code-review]
 
 context:
   implementer:

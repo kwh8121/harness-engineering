@@ -54,7 +54,8 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 
 `references/routing.md` 의 레벨별 절차를 그대로 따른다. 요약:
 
-- **H0** — 직접 구현 → `run-gates.sh fast` → `run-gates.sh final`. 서브에이전트 0개.
+- **H0** — 직접 구현 → `fast` → `feature` → `final` 게이트. 서브에이전트 0개.
+  에이전트 수가 0일 뿐 **검증 tier 는 줄이지 않는다.**
 - **H1** — (uncertainty≥medium 이면 dependency-mapper ‖ baseline-tester 동시 dispatch 선행)
   → implementer → 게이트 → reviewer → 루프 ≤ `max_loops`.
 - **H2** — worktree 격리 → 조사 2인 동시 dispatch → `superpowers:writing-plans`
@@ -79,5 +80,5 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 - **구현 워커 동시 dispatch 금지**: `max_workers: 3` 은 병합 단위 수이지 동시 실행 수가 아니다. 동시 dispatch 는 파일을 쓰지 않는 조사 에이전트에만 허용한다.
 - **리뷰 루프 상한**: `max_loops`(기본 2, risk: high 만 3) 초과 시 고치지 말고 사람에게 넘긴다. MINOR·NIT 는 루프를 막지 않는다.
 - **자동 커밋 금지 / workspace 보존**: `git commit` 을 호출하지 않고, 종료 후에도 `_workspace/` 를 삭제하지 않는다.
-- **`allowed-tools` 의 Bash 가 넓은 이유**: 게이트 명령이 프로젝트마다 달라 화이트리스트가 불가능하다. 대신 각 에이전트의 `tools` 로 경계를 강제한다 (reviewer·orchestrator 에 Edit 없음).
+- **`allowed-tools` 의 Bash 가 넓은 이유**: 게이트 명령이 프로젝트마다 달라 화이트리스트가 불가능하다. 대신 각 에이전트의 `tools` 로 경계를 좁힌다 (reviewer·orchestrator 에 Edit 없음). 다만 `Write`·`Bash` 우회까지 막지는 못한다 — `references/catalog.md` 의 강제 수준 표 참고.
 - **이식성**: `.claude/skills/harness-architect/` + `.claude/agents/*.md` 를 통째로 복사하면 별도 설치 없이 다른 저장소에서 동작한다.

@@ -1,0 +1,11 @@
+{
+  "name": "fixture-nested",
+  "scripts": {
+    "lint": "eslint . --rule '{\"no-console\":\"error\"}'",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "build": "1.0.0",
+    "typecheck": "2.0.0"
+  }
+}

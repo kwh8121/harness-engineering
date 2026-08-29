@@ -34,7 +34,7 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 | `uncertainty: high` + `risk: high` + 단위 2개 이상 + `level: H1` | Under-Orchestration. 호출부를 다 모르는 위험한 변경을 한 명에게 통째로 맡기는 꼴 |
 | `side_effect: irreversible` 또는 `target_environment: production` 인데 `human_gate: false` | STEP 5 누락 |
 | 영역이 여러 개라는 이유만으로 H2 | 영역 개수 ≠ 작업 단위 개수 |
-| `risk: high` 가 레벨 승격 근거로 쓰임 | risk 는 reviewer·`max_loops`·Human Gate 만 바꾼다 |
+| `risk: high` 가 레벨 승격 근거로 쓰임 | risk 는 reviewer 유무와 `max_loops` 만 바꾼다. Human Gate 는 STEP 5(`side_effect`·환경·시크릿·삭제)가 정한다 |
 | H3 인데 재라우팅 시나리오가 구체적이지 않음 | 실패 원인 3갈래를 못 대면 H2 로 충분 |
 
 ## A-2. Phase 3 승인 게이트
@@ -42,6 +42,11 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 - [ ] **승인을 요청받기 전에 에이전트가 스폰되지 않았다**
 - [ ] `_workspace/harness/spec.yaml` 이 실제 파일로 존재한다 (대화 속 요약이 아니라)
 - [ ] 요약에 레벨·에이전트와 모델·게이트·`max_loops`·Human Gate 가 전부 있다
+- [ ] **수용 기준마다 그것을 확인하는 게이트가 있다** — `verification.local`/`final` 의 tier 를
+      합쳤을 때 `gates.tsv` 의 해당 명령이 실제로 포함되는가?
+      게이트로 확인 불가능한 항목은 `verification.manual` 에 있는가?
+      어느 쪽에도 없는 수용 기준은 **검증되지 않은 채 완료 선언된다**
+      (예: "테스트가 통과한다"인데 `feature` tier 가 어디에도 없는 경우)
 
 ## A-3. Phase 4 실행 중
 
@@ -117,6 +122,11 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
       - `orchestrator` 에 Edit 없음 (Orchestrator 는 코드를 쓰지 않는다)
       - `dependency-mapper` 에 Write 없음 (조사 전용)
 
+      > **이 검사가 보장하지 않는 것**: `Edit` 제거는 *정식 편집 경로*만 막는다.
+      > `Write` 로 새 파일을, `Bash` 로 `sed -i`·리다이렉션을 쓰면 우회된다.
+      > 이 검사를 통과했다고 "읽기 전용이 강제됐다"고 읽으면 안 된다.
+      > 강제 수준 표는 `references/catalog.md`, 미해결 항목은 아래 B-3 참고.
+
 - [ ] **SKILL.md 심사** — `bash ../ex-05-13-skill-md-reviewer/.claude/skills/reviewing-skill-md/scripts/collect-metrics.sh .claude/skills/harness-architect/SKILL.md`
       → 기대: `line_count` < 300, `frontmatter_chars` < 800, `has_references_dir: yes`,
       description 이 트리거 조건으로 시작
@@ -152,6 +162,18 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
       → 특히 `package.json` 의 `scripts` 블록이 한 줄로 압축된 경우, 중첩 객체가 있는 경우
 - [ ] **`max_loops` 상한이 실제로 루프를 끊는지 검증되지 않았다**
 - [ ] **Human Gate 가 실제로 실행을 멈추는지 검증되지 않았다**
+- [ ] **읽기 전용 역할의 쓰기 차단이 프롬프트 준수에만 의존한다**
+      — `reviewer`·`orchestrator` 는 `Write`+`Bash`, `dependency-mapper` 는 `Bash` 를 갖는다.
+      `Edit` 제거로는 `sed -i`·리다이렉션을 막지 못한다
+      → 확인 방법: 각 역할에 소스 수정을 지시하는 negative test 를 돌려 실제 거부율을 잰다.
+      차단이 필요하면 `PreToolUse` 훅이나 권한 규칙을 추가한다 (현재 미제공)
+- [ ] **`HarnessSpec` 이 스키마 계약대로인지 기계적으로 검증되지 않는다**
+      — B-1 의 YAML 검사는 `yaml.safe_load` 성공 여부만 본다. 카탈로그 밖 에이전트,
+      `model` 누락, enum 위반, 수용 기준에 대응하는 게이트 부재를 잡지 못한다
+      → 확인 방법: spec validator 를 추가하고 malformed spec 으로 negative test 를 만든다
+- [ ] **`detect-stack.sh` 의 awk 폴백 경로가 검증되지 않았다**
+      — python3·node 가 둘 다 없는 환경에서만 쓰이며, 한 줄 `package.json` 을 인식하지 못한다
+      (그 경우 stderr 로 경고한다)
 
 ## B-4. 다른 저장소로 이식할 때
 
@@ -160,5 +182,15 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 - [ ] 절대 경로 하드코딩이 없다 — `grep -rn "/home/\|/Users/" .claude/` 가 아무것도 내지 않는다
 - [ ] 이식한 저장소에서 `init-workspace.sh` 가 게이트를 감지한다.
       감지 못 하면(exit 3) 그 저장소의 검증 명령을 `gates.tsv` 에 기록했다
-- [ ] 대상 저장소에 superpowers 가 설치돼 있다 (`catalog.md` 매핑표의 12종을 위임한다).
-      없으면 H2/H3 의 계획·실행 위임이 끊긴다 — H0/H1 은 superpowers 없이도 동작한다
+- [ ] 대상 저장소에서 superpowers 스킬이 **실제로 discovery 되는지** 확인했다
+      (`catalog.md` 매핑표의 12종). 설치 여부가 아니라 호출 가능 여부를 본다
+      ```bash
+      # 각 레벨의 최소 필수 스킬 — 하나라도 없으면 그 레벨은 중간에 끊긴다
+      # H0: verification-before-completion
+      # H1: + test-driven-development, requesting-code-review, receiving-code-review
+      # H2/H3: + using-git-worktrees, writing-plans, subagent-driven-development,
+      #          dispatching-parallel-agents
+      ```
+      **H0 도 superpowers 없이는 완결되지 않는다** — `verification-before-completion` 이
+      전 레벨 필수다. superpowers 가 없는 환경으로 이식한다면 `routing.md` 의
+      `REQUIRED SUB-SKILL:` 지시를 로컬 절차로 대체해야 한다

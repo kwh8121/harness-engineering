@@ -24,8 +24,12 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 |---|---|---|---|
 | **H0** | Single | 0 | 단일 영역, 동작 변화 없음. 게이트가 회귀를 전부 잡는 경우 |
 | **H1** | Pipeline | 2 | 일반적인 기능 개발. implementer → 게이트 → reviewer |
-| **H2** | Fan-out / Fan-in | ≤5 | 진짜 독립적인 작업 단위가 2개 이상일 때만 |
-| **H3** | Orchestrator + DAG | ≤6 | 의존 + 실패 원인별 재라우팅이 필요할 때만 |
+| **H2** | Fan-out / Fan-in | 역할 ≤5 | 진짜 독립적인 작업 단위가 2개 이상일 때만 |
+| **H3** | Orchestrator + DAG | 역할 ≤7 | 의존 + 실패 원인별 재라우팅이 필요할 때만 |
+
+> **역할 수 ≠ 동시 실행 수.** 위 열은 하네스가 쓰는 *서로 다른 역할*의 총수이고,
+> 동시에 도는 워커는 어느 레벨에서든 `max_workers: 3` 이 상한이다.
+> H3 은 H2 의 5역할에 `orchestrator` 와 `deployment-agent` 를 더한 것이다.
 
 판정은 6축 프로파일링(scope / coupling / parallelism / uncertainty / risk / side_effect) 뒤
 5스텝 판정 트리로 이루어진다. **한 단계 아래가 왜 안 되는지 쓸 수 없으면 아래 레벨이 맞다.**
@@ -78,9 +82,10 @@ Phase 0~5 가 진행된다. **Phase 3 에서 반드시 승인을 요청하고 �
 
 ## 결과 요약
 
-- 스크립트 테스트 35 assertion 전부 통과 (`detect-stack` 22 + `run-gates` 13)
+- 스크립트 테스트 검증 항목 43개 전부 통과 (`detect-stack` 30 + `run-gates` 13)
 - 라우팅 판정 eval 3건 전부 기대값 일치 (H0 / H1 / H3): `evals/` 참고
-- 레포 자체 심사 도구(`ex-05-13-skill-md-reviewer`) A~D 체크리스트 전 항목 pass
+- SKILL.md 자체 심사: 레포의 `reviewing-skill-md` 체크리스트(구조·발견성·크기·안티패턴) 전 항목 pass
+  — 이는 **문서 품질** 심사이며, 실행 검증 상태는 아래와 `CHECKLIST.md` B-3 을 본다
 
 **아직 검증되지 않은 영역**: H2 경로는 eval 에서 선택된 적이 없고, Phase 4 실행과
 에이전트 dispatch 는 한 번도 돌지 않았다. `run-gates.sh` 는 실제 린트·테스트 명령이 아니라

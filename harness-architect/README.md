@@ -46,6 +46,8 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 - `tests/` — 스크립트 bash 테스트 하네스 (35 assertion)
 - `fixtures/` — 스택 감지용 가짜 프로젝트 5종
 - `evals/` — 라우팅 판정 eval (H0 / H1 / H3 기대값과 실행 기록)
+- `CHECKLIST.md` — 활용 체크리스트(Phase 별 확인 항목·거부해야 하는 판정 조합)와
+  완성도 점검 체크리스트(결정론적 검증 명령·eval·**아직 검증되지 않은 영역**·이식 절차)
 
 ## 토큰을 아끼는 세 가지 장치
 
@@ -77,8 +79,12 @@ Phase 0~5 가 진행된다. **Phase 3 에서 반드시 승인을 요청하고 �
 ## 결과 요약
 
 - 스크립트 테스트 35 assertion 전부 통과 (`detect-stack` 22 + `run-gates` 13)
-- 라우팅 판정 eval 3건: `evals/` 참고
+- 라우팅 판정 eval 3건 전부 기대값 일치 (H0 / H1 / H3): `evals/` 참고
 - 레포 자체 심사 도구(`ex-05-13-skill-md-reviewer`) A~D 체크리스트 전 항목 pass
+
+**아직 검증되지 않은 영역**: H2 경로는 eval 에서 선택된 적이 없고, Phase 4 실행과
+에이전트 dispatch 는 한 번도 돌지 않았다. `run-gates.sh` 는 실제 린트·테스트 명령이 아니라
+`echo` 로만 검증했다. 전체 목록과 확인 방법은 `CHECKLIST.md` B-3 참고.
 
 설계 근거는 `../docs/guides/harnes-architect.md`, 구현 스펙은
 `../docs/superpowers/specs/2026-08-29-harness-architect-design.md` 참고.

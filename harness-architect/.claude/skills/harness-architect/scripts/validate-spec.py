@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""validate-spec.py — HarnessSpec 이 실행 계약으로서 온전한지 기계적으로 검증한다.
+
+사용법:
+    python3 validate-spec.py <spec.yaml> [--gates <gates.tsv>]
+
+종료코드:
+    0  통과 (경고는 있을 수 있다)
+    1  계약 위반 — 이 spec 으로 실행하면 안 된다
+    2  검증기를 돌릴 수 없다 (파일 없음·파싱 실패·PyYAML 없음)
+
+왜 필요한가:
+    `yaml.safe_load` 성공은 "문법이 YAML 이다"만 말해 준다. 카탈로그 밖 에이전트,
+    model 누락, 축 모순, 수용 기준에 대응하는 게이트 부재는 전부 통과해 버린다.
+    실제로 H0 가 feature tier 를 배정하지 않아 테스트 없이 완료를 선언하던 결함이
+    이 검증기가 없어서 리뷰까지 살아남았다.
+"""
+import sys
+
+EXIT_OK, EXIT_INVALID, EXIT_CANNOT_RUN = 0, 1, 2
+
+# 카탈로그 7종 — references/catalog.md 와 .claude/agents/*.md 가 진실의 원천이다.
+CATALOG = {
+    "implementer", "reviewer", "dependency-mapper", "baseline-tester",
+    "integrator", "orchestrator", "deployment-agent",
+}
+
+# Agent 도구가 필요한 스킬. 워커에 주입하면 실행되지 않는다.
+CONTROLLER_ONLY_SKILLS = {
+    "superpowers:brainstorming",
+    "superpowers:writing-plans",
+    "superpowers:subagent-driven-development",
+    "superpowers:dispatching-parallel-agents",
+    "superpowers:using-git-worktrees",
+    "superpowers:requesting-code-review",
+    "superpowers:verification-before-completion",
+    "superpowers:finishing-a-development-branch",
+}
+
+ENUMS = {
+    ("profile", "scope"): {"single", "few", "many"},
+    ("profile", "coupling"): {"low", "medium", "high"},
+    ("profile", "parallelism"): {"none", "some", "high"},
+    ("profile", "uncertainty"): {"low", "medium", "high"},
+    ("profile", "risk"): {"low", "medium", "high"},
+    ("profile", "side_effect"): {"none", "reversible", "irreversible"},
+    ("harness", "level"): {"H0", "H1", "H2", "H3"},
+    ("harness", "pattern"): {"single", "pipeline", "fanout", "dag"},
+}
+
+LEVEL_PATTERN = {"H0": "single", "H1": "pipeline", "H2": "fanout", "H3": "dag"}
+TIERS = {"fast", "feature", "final"}
+
+REQUIRED_TOP = [
+    "harness_version", "task", "profile", "harness", "agents",
+    "controller_skills", "agent_skills", "context",
+    "verification", "review_policy", "parallelism", "human_gate",
+]
+
+# 수용 기준이 테스트 통과를 요구하는지 판별할 때 쓰는 표지
+TEST_WORDS = ("테스트", "test", "spec 통과", "회귀")
+
+
+class Report:
+    def __init__(self):
+        self.errors = []
+        self.warnings = []
+
+    def error(self, code, where, msg):
+        self.errors.append(f"ERROR {code}  {where}: {msg}")
+
+    def warn(self, code, where, msg):
+        self.warnings.append(f"WARN  {code}  {where}: {msg}")
+
+
+def get(d, *path, default=None):
+    cur = d
+    for k in path:
+        if not isinstance(cur, dict) or k not in cur:
+            return default
+        cur = cur[k]
+    return cur
+
+
+def check_structure(spec, r):
+    if "skills" in spec:
+        r.error("E-SCHEMA-LEGACY", "skills",
+                "폐기된 키다. controller_skills 와 agent_skills 로 나눠야 한다 "
+                "(워커에는 Agent 도구가 없다)")
+    for key in REQUIRED_TOP:
+        if key not in spec:
+            r.error("E-REQUIRED", key, "필수 최상위 키가 없다")
+    for field in ("goal", "scope", "acceptance_criteria"):
+        if not get(spec, "task", field):
+            r.error("E-REQUIRED", f"task.{field}", "비어 있다")
+
+
+def check_enums(spec, r):
+    for (section, field), allowed in ENUMS.items():
+        val = get(spec, section, field)
+        if val is None:
+            r.error("E-REQUIRED", f"{section}.{field}", "값이 없다")
+        elif val not in allowed:
+            r.error("E-ENUM", f"{section}.{field}",
+                    f"'{val}' 는 허용되지 않는다. 가능한 값: {sorted(allowed)}")
+
+
+def check_axes(spec, r):
+    coupling = get(spec, "profile", "coupling")
+    parallelism = get(spec, "profile", "parallelism")
+    if coupling == "high" and parallelism not in (None, "none"):
+        r.error("E-AXIS", "profile",
+                f"coupling: high 면 parallelism 은 none 이어야 한다 (현재 '{parallelism}'). "
+                "동시 실행이 불가능하다는 뜻이지, 작업 단위가 1개라는 뜻이 아니다")
+
+    level, pattern = get(spec, "harness", "level"), get(spec, "harness", "pattern")
+    if level in LEVEL_PATTERN and pattern and pattern != LEVEL_PATTERN[level]:
+        r.error("E-ENUM", "harness.pattern",
+                f"{level} 의 pattern 은 '{LEVEL_PATTERN[level]}' 여야 한다 (현재 '{pattern}')")
+
+    if not str(get(spec, "harness", "rationale") or "").strip():
+        r.error("E-RATIONALE", "harness.rationale",
+                "비어 있다. 한 단계 아래가 왜 불충분한지 써야 한다 "
+                "(H0 는 STEP 1 세 조건 충족으로 갈음)")
+
+
+def check_agents(spec, r):
+    agents = spec.get("agents") or []
+    if not isinstance(agents, list):
+        r.error("E-REQUIRED", "agents", "리스트여야 한다")
+        return []
+
+    ids = []
+    for i, a in enumerate(agents):
+        if not isinstance(a, dict) or "id" not in a:
+            r.error("E-REQUIRED", f"agents[{i}]", "id 가 없다")
+            continue
+        aid = a["id"]
+        ids.append(aid)
+        if aid not in CATALOG:
+            r.error("E-AGENT-UNKNOWN", f"agents[{i}].id",
+                    f"'{aid}' 는 카탈로그 7종에 없다. 새 역할을 만들지 않는다 — "
+                    f"반복 Procedure 라면 Agent 가 아니라 Skill 이다. 가능: {sorted(CATALOG)}")
+        if not a.get("model"):
+            r.error("E-AGENT-MODEL", f"agents[{i}]({aid})",
+                    "model 이 없다. dispatch 시 생략하면 세션의 가장 비싼 모델을 상속한다")
+        if not str(a.get("responsibility") or "").strip():
+            r.warn("W-RESPONSIBILITY", f"agents[{i}]({aid})", "responsibility 가 비어 있다")
+
+    dup = {x for x in ids if ids.count(x) > 1}
+    if dup:
+        r.error("E-AGENT-UNKNOWN", "agents", f"중복된 에이전트: {sorted(dup)}")
+
+    level = get(spec, "harness", "level")
+    idset = set(ids)
+    if level == "H0" and ids:
+        r.error("E-LEVEL-AGENTS", "agents",
+                f"H0 은 서브에이전트를 스폰하지 않는다 (현재 {sorted(idset)})")
+    if level in ("H1", "H2", "H3"):
+        for need in ("implementer", "reviewer"):
+            if need not in idset:
+                r.error("E-LEVEL-AGENTS", "agents", f"{level} 에는 {need} 가 필요하다")
+    if level in ("H2", "H3") and "integrator" not in idset:
+        r.error("E-LEVEL-AGENTS", "agents",
+                f"{level} 은 여러 작업 단위를 합치므로 integrator 가 필요하다")
+    if level == "H3" and "orchestrator" not in idset:
+        r.error("E-LEVEL-AGENTS", "agents",
+                "H3 은 DAG 상태 관리와 재라우팅을 위해 orchestrator 가 필요하다")
+    if level in ("H0", "H1", "H2") and "orchestrator" in idset:
+        r.error("E-LEVEL-AGENTS", "agents",
+                f"{level} 에 orchestrator 는 불필요하다. 조정이 필요하면 H3 로 올린다")
+    return ids
+
+
+def check_skills(spec, agent_ids, r):
+    controller = spec.get("controller_skills") or []
+    agent_skills = spec.get("agent_skills") or {}
+
+    if "superpowers:verification-before-completion" not in controller:
+        r.error("E-SKILL-OWNER", "controller_skills",
+                "superpowers:verification-before-completion 은 전 레벨 필수다")
+
+    if not isinstance(agent_skills, dict):
+        r.error("E-SKILL-OWNER", "agent_skills", "에이전트 id → 스킬 목록 매핑이어야 한다")
+        return
+
+    for aid, skills in agent_skills.items():
+        if aid not in agent_ids:
+            r.error("E-SKILL-OWNER", f"agent_skills.{aid}",
+                    f"'{aid}' 는 이 spec 의 agents 에 없다")
+        for s in (skills or []):
+            if s in CONTROLLER_ONLY_SKILLS:
+                r.error("E-SKILL-OWNER", f"agent_skills.{aid}",
+                        f"'{s}' 는 Agent 도구가 필요한 controller 스킬이다. "
+                        "워커에 주입하면 실행되지 않는다 — controller_skills 로 옮겨라")
+
+
+def check_verification(spec, r, gates_path=None):
+    local = spec.get("verification", {}).get("local") or []
+    final = spec.get("verification", {}).get("final") or []
+    manual = spec.get("verification", {}).get("manual") or []
+
+    for name, tiers in (("local", local), ("final", final)):
+        for t in tiers:
+            if t not in TIERS:
+                r.error("E-ENUM", f"verification.{name}",
+                        f"'{t}' 는 tier 가 아니다. 가능: {sorted(TIERS)}")
+
+    declared = set(local) | set(final)
+    criteria = spec.get("task", {}).get("acceptance_criteria") or []
+    wants_test = any(any(w in str(c).lower() for w in TEST_WORDS) for c in criteria)
+
+    if wants_test and "feature" not in declared and not manual:
+        r.error("E-GATE-COVERAGE", "verification",
+                "수용 기준이 테스트 통과를 요구하는데 feature tier 가 local·final 어디에도 없고 "
+                "manual 도 비어 있다. detect-stack.sh 는 단위 테스트를 feature 로 분류한다 — "
+                "이대로면 테스트가 한 번도 실행되지 않은 채 완료가 선언된다")
+
+    if not declared and not manual:
+        r.error("E-GATE-COVERAGE", "verification",
+                "실행할 게이트도 수동 확인 항목도 없다. 무엇으로 완료를 판정하는가?")
+
+    if gates_path:
+        try:
+            rows = [ln.split("\t", 1) for ln in open(gates_path) if "\t" in ln]
+        except OSError as e:
+            r.warn("W-GATES", "verification.gates_tsv", f"gates.tsv 를 읽을 수 없다: {e}")
+        else:
+            available = {t.strip() for t, _ in rows}
+            for t in sorted(declared - available):
+                r.error("E-GATE-COVERAGE", "verification",
+                        f"tier '{t}' 를 선언했지만 {gates_path} 에 해당 명령이 없다")
+            for t in sorted(available - declared):
+                r.warn("W-GATES", "verification",
+                       f"gates.tsv 에 tier '{t}' 명령이 있는데 spec 이 실행하지 않는다")
+
+
+def check_policies(spec, r):
+    risk = get(spec, "profile", "risk")
+    loops = get(spec, "review_policy", "max_loops")
+    if loops is None:
+        r.error("E-REQUIRED", "review_policy.max_loops", "값이 없다")
+    else:
+        limit = 3 if risk == "high" else 2
+        if loops > limit:
+            r.error("E-REVIEW-LOOPS", "review_policy.max_loops",
+                    f"risk: {risk} 의 상한은 {limit} 이다 (현재 {loops}). "
+                    "루프를 늘리는 것은 Verify–Generate Deadlock 을 부른다")
+        if loops < 1:
+            r.error("E-REVIEW-LOOPS", "review_policy.max_loops", "1 이상이어야 한다")
+
+    workers = get(spec, "parallelism", "max_workers")
+    enabled = get(spec, "parallelism", "enabled")
+    if workers is None:
+        r.error("E-REQUIRED", "parallelism.max_workers", "값이 없다")
+    elif workers > 3:
+        r.error("E-PARALLEL", "parallelism.max_workers",
+                f"상한은 3 이다 (현재 {workers}). 4 이상은 병합 비용이 병렬 이득을 잠식한다")
+    elif enabled is False and workers != 1:
+        r.error("E-PARALLEL", "parallelism",
+                f"enabled: false 인데 max_workers 가 {workers} 다")
+
+    side_effect = get(spec, "profile", "side_effect")
+    env = get(spec, "task", "target_environment")
+    required = get(spec, "human_gate", "required")
+    if (side_effect == "irreversible" or env == "production") and required is not True:
+        r.error("E-HUMAN-GATE", "human_gate.required",
+                f"side_effect={side_effect}, target_environment={env} 이면 "
+                "레벨과 무관하게 true 여야 한다 (판정 트리 STEP 5)")
+    if required is True and not str(get(spec, "human_gate", "reason") or "").strip():
+        r.error("E-HUMAN-GATE", "human_gate.reason",
+                "승인을 요구하면서 사유를 적지 않았다. 사람이 무엇을 승인하는지 알 수 없다")
+
+
+def check_context(spec, agent_ids, r):
+    ctx = spec.get("context") or {}
+    if not isinstance(ctx, dict):
+        r.error("E-CONTEXT", "context", "에이전트 id → 예산 매핑이어야 한다")
+        return
+    for aid in agent_ids:
+        if aid not in ctx:
+            r.error("E-CONTEXT", f"context.{aid}",
+                    "컨텍스트 예산이 없다. 예산 없는 에이전트는 레포 전체를 읽는다")
+            continue
+        entry = ctx[aid] or {}
+        if not entry.get("required"):
+            r.error("E-CONTEXT", f"context.{aid}.required", "비어 있다")
+        if "full_repository_dump" not in (entry.get("forbidden") or []):
+            r.error("E-CONTEXT", f"context.{aid}.forbidden",
+                    "full_repository_dump 는 모든 에이전트에서 금지다 (예외 없음)")
+    for aid in ctx:
+        if aid not in agent_ids:
+            r.warn("W-CONTEXT", f"context.{aid}", "이 spec 의 agents 에 없는 에이전트다")
+
+
+def main(argv):
+    if len(argv) < 2:
+        print(__doc__.strip(), file=sys.stderr)
+        return EXIT_CANNOT_RUN
+
+    path = argv[1]
+    gates_path = None
+    if "--gates" in argv:
+        i = argv.index("--gates")
+        if i + 1 >= len(argv):
+            print("ERROR: --gates 뒤에 경로가 없다", file=sys.stderr)
+            return EXIT_CANNOT_RUN
+        gates_path = argv[i + 1]
+
+    try:
+        import yaml
+    except ImportError:
+        print("검증기를 돌릴 수 없습니다: PyYAML 이 없습니다 (pip install pyyaml).\n"
+              "  설치할 수 없는 환경이면 CHECKLIST.md A-2 의 승인 게이트 항목을 손으로 확인하십시오.",
+              file=sys.stderr)
+        return EXIT_CANNOT_RUN
+
+    try:
+        with open(path) as f:
+            spec = yaml.safe_load(f)
+    except OSError as e:
+        print(f"검증기를 돌릴 수 없습니다: {e}", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+    except yaml.YAMLError as e:
+        print(f"검증기를 돌릴 수 없습니다: YAML 파싱 실패 — {e}", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+
+    if not isinstance(spec, dict):
+        print("검증기를 돌릴 수 없습니다: 최상위가 매핑이 아닙니다", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+
+    r = Report()
+    check_structure(spec, r)
+    check_enums(spec, r)
+    check_axes(spec, r)
+    agent_ids = check_agents(spec, r)
+    check_skills(spec, agent_ids, r)
+    check_verification(spec, r, gates_path)
+    check_policies(spec, r)
+    check_context(spec, agent_ids, r)
+
+    for line in r.warnings:
+        print(line)
+    for line in r.errors:
+        print(line)
+
+    if r.errors:
+        print(f"\n{path}: 계약 위반 {len(r.errors)}건 — 이 spec 으로 실행하지 마십시오.")
+        return EXIT_INVALID
+    print(f"{path}: 통과 (경고 {len(r.warnings)}건)")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

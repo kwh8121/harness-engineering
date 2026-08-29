@@ -1,0 +1,12 @@
+[project]
+name = "fixture-python-uv"
+version = "0.1.0"
+
+[dependency-groups]
+dev = ["ruff>=0.6", "mypy>=1.11", "pytest>=8.0"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

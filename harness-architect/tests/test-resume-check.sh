@@ -103,6 +103,10 @@ git -C "$TMP/repo" worktree remove --force "$TMP/repo/.worktrees/w2"
 rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
 echo scratch > "$TMP/repo/untracked.txt"
 assert_eq "11" "$(run)" "같은 HEAD 라도 작업 트리가 바뀌면 강등"
+# M-1: exit 11 은 여러 경로로 나온다. tree_digest 불일치가 무조건 백스톱이 아니라
+# drift() 의 실제 메시지로 확인되게 한다 (백스톱이 이 분기 버그를 통째로 가린다).
+assert_contains "$(cd "$TMP/repo" && python3 "$CHECK" 2>&1)" "작업 트리 변경됨" \
+    "tree_digest 불일치는 실제 메시지로 확인된다"
 rm -f "$TMP/repo/untracked.txt"
 assert_eq "10" "$(run)" "되돌리면 다시 자동 재개 후보"
 
@@ -150,6 +154,8 @@ git -C "$TMP/repo" checkout -- a.txt
 rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
 mkdir -p "$TMP/repo/src/my_workspace"; echo x > "$TMP/repo/src/my_workspace/f.txt"
 assert_eq "11" "$(run)" "src/my_workspace 변경은 강등한다 (_workspace 와 다르다)"
+assert_contains "$(cd "$TMP/repo" && python3 "$CHECK" 2>&1)" "작업 트리 변경됨" \
+    "src/my_workspace 변경도 tree_digest 메시지로 확인된다 (M-1)"
 rm -rf "$TMP/repo/src"
 
 # 16. spec_digest — 승인된 계약이 바뀌면 강등한다

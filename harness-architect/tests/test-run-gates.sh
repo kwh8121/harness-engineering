@@ -90,4 +90,17 @@ assert_eq "$before" "$(cat "$WS_AUTO/state.json")" "손상된 state 원본이 �
 assert_contains "$err" "checkpoint" "기록 실패를 stderr 로 알린다"
 rm -rf "$WS_AUTO"
 
+# I-8: 실패하는 게이트 + 손상된 state — 핵심 불변식은 "체크포인트 실패가 판정을
+# 뒤집지 않는다"이다. 통과하는 게이트('true')로 검사하면 exit 0 이 어차피 나므로
+# 공허하다. 실패하는 게이트('false')로 exit 1 이 유지되는지 확인한다.
+WS_FAIL="$(mktemp -d)"
+printf 'fast\tfalse\n' > "$WS_FAIL/gates.tsv"
+printf '{ broken' > "$WS_FAIL/state.json"
+before="$(cat "$WS_FAIL/state.json")"
+err="$(HARNESS_WORKSPACE="$WS_FAIL" bash "$SCRIPT" fast "$WS_FAIL/gates.tsv" "$WS_FAIL/logs" 2>&1 >/dev/null)"; rc=$?
+assert_exit_code 1 "$rc" "실패 게이트 + 손상 state: 실패 판정(exit 1)이 유지된다"
+assert_eq "$before" "$(cat "$WS_FAIL/state.json")" "실패 게이트 경로에서도 손상된 state 원본이 보존된다"
+assert_contains "$err" "checkpoint" "실패 게이트 경로에서도 기록 실패를 stderr 로 알린다"
+rm -rf "$WS_FAIL"
+
 report_and_exit

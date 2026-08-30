@@ -28,6 +28,12 @@ assert_eq "$TMP/_workspace/harness" "$out" "git 저장소가 아니면 현재 �
 override="$(HARNESS_WORKSPACE=/tmp/custom bash "$SCRIPT" --print)"
 assert_eq "/tmp/custom" "$override" "HARNESS_WORKSPACE 가 우선한다"
 
+wt_root="$(cd "$TMP/repo/.worktrees/feat" && bash "$SCRIPT" --print-root)"
+assert_eq "$TMP/repo" "$wt_root" "linked worktree 안에서도 --print-root 는 메인 루트를 낸다"
+
+root_override="$(cd "$TMP/repo" && HARNESS_WORKSPACE=/tmp/custom bash "$SCRIPT" --print-root)"
+assert_eq "$TMP/repo" "$root_override" "--print-root 는 HARNESS_WORKSPACE 를 무시한다"
+
 bash "$SCRIPT" >/dev/null 2>&1; rc=$?
 assert_exit_code 2 "$rc" "인자 없이 실행하면 사용법 오류"
 

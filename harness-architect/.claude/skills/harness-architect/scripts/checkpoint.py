@@ -180,7 +180,11 @@ def load(path):
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
+    except (ValueError, OSError) as e:
+        # JSONDecodeError 가 아니라 ValueError 로 잡는다: 비-UTF-8 바이트가 든 state 는
+        # json.load() 안에서 UnicodeDecodeError 를 던지는데, 이건 JSONDecodeError 가
+        # 아니라 ValueError 의 하위 클래스다. 좁히면 fail-closed 계약이 비-UTF-8
+        # 손상에서 깨져 traceback + exit 1 로 죽는다(자동 호출부가 exit 3 만 본다).
         return None, f"state 를 읽을 수 없습니다: {e}"
     if not isinstance(data, dict):
         return None, "state 가 매핑이 아닙니다"

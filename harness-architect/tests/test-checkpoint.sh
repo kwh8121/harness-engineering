@@ -66,6 +66,13 @@ python3 "$CP" --phase 4 2>/dev/null; rc=$?
 assert_exit_code 3 "$rc" "미지원 schema_version 에서는 exit 3"
 assert_eq "$before" "$(cat "$STATE")" "미지원 schema 원본도 보존된다"
 
+# 7b. 비-UTF-8 손상도 fail-closed — UnicodeDecodeError 가 exit 3 으로 잡혀야 한다
+printf 'invalid \xff\xfe utf8' > "$STATE"
+before="$(cat "$STATE" 2>/dev/null | od -An -tx1)"
+python3 "$CP" --phase 4 2>/dev/null; rc=$?
+assert_exit_code 3 "$rc" "비-UTF-8 손상에서도 exit 3"
+assert_eq "$before" "$(cat "$STATE" 2>/dev/null | od -An -tx1)" "비-UTF-8 원본 바이트가 보존된다"
+
 # 8. 반복 쓰기 중 reader 가 불완전 JSON 을 보지 않는다 (원자성)
 cp "$TMP/good.json" "$STATE"
 ( for i in $(seq 1 40); do python3 "$CP" --next "n$i" >/dev/null 2>&1; done ) &
@@ -76,5 +83,6 @@ while kill -0 "$writer" 2>/dev/null; do
 done
 wait "$writer"
 assert_eq "0" "$bad" "쓰기 중에도 항상 완전한 JSON 만 읽힌다"
+assert_eq "n40" "$(jq_ 'd["next_action"]')" "쓰기가 실제로 반영됐다 (원자성 테스트가 공허하지 않다)"
 
 report_and_exit

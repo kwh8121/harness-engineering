@@ -84,7 +84,11 @@ def git(*args):
     return r.stdout if r.returncode == 0 else None
 
 
-EXCLUDE_WS = ":(exclude)_workspace/"
+# _workspace/ 제외는 pathspec 으로 한다 — 문자열 필터는 src/my_workspace/ 같은
+# 무관한 경로까지 지운다. `:(top,...)` 매직이 있어야 CWD 상대가 아니라 저장소
+# 루트 기준으로 해석된다 — 매직 없는 pathspec 은 하위 디렉터리에서 실행하면
+# 루트의 변경을 통째로 놓친다(문서화된 사용법이 하위 디렉터리 실행이다).
+EXCLUDE_WS = ":(top,exclude)_workspace/"
 
 
 def file_digest(path):
@@ -93,8 +97,14 @@ def file_digest(path):
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
-    except OSError:
-        return "unreadable"
+    except OSError as e:
+        # 읽을 수 없는 파일마다 **경로별로 다른** 표식을 낸다. 예전에는 상수
+        # "unreadable" 을 돌려줘서, 열리지 않는 파일의 내용이 어떻게 바뀌어도
+        # digest 가 흔들리지 않았다(조용한 상수가 그 버그를 숨겼다). stderr 로도 알린다.
+        print(f"checkpoint: 파일을 읽지 못해 경로 표식으로 대체합니다: {path} ({e})",
+              file=sys.stderr)
+        tag = hashlib.sha256(path.encode("utf-8", "surrogateescape")).hexdigest()[:16]
+        return "unreadable:" + tag
     return h.hexdigest()
 
 
@@ -106,22 +116,30 @@ def tree_digest():
     'M a.txt' 로 같아 digest 가 바뀌지 않는다(임시 저장소에서 재현됨).
 
     그래서 tracked 변경은 diff 본문을, untracked 는 경로와 파일 내용을 해시한다.
-    _workspace/ 제외는 pathspec 으로 한다 — 문자열 필터는 src/my_workspace/ 같은
-    무관한 경로까지 지운다.
+
+    git 명령은 **현재 체크아웃된 트리의 루트**(`--show-toplevel`)에서 실행한다 —
+    CWD 가 하위 디렉터리여도 pathspec·출력 경로가 루트 기준으로 안정된다.
+    untracked 는 `-z` 로 받아 NUL 로 자른다 — 기본 `core.quotePath=true` 는
+    비-ASCII 이름을 C-따옴표로 감싸 file_digest 가 파일을 못 열게 만든다
+    (이 저장소는 문서를 한국어로 쓰므로 실제로 마주치는 경우다).
     """
-    diff = git("diff", "--binary", "HEAD", "--", ".", EXCLUDE_WS)
+    top = (git("rev-parse", "--show-toplevel") or "").strip()
+    if not top:
+        return None
+    diff = git("-C", top, "diff", "--binary", "HEAD", "--", EXCLUDE_WS)
     if diff is None:
         return None
-    untracked = git("ls-files", "--others", "--exclude-standard", "--", ".", EXCLUDE_WS) or ""
+    untracked = git("-C", top, "ls-files", "-z", "--others",
+                    "--exclude-standard", "--", EXCLUDE_WS) or ""
 
     h = hashlib.sha256()
     h.update(diff.encode("utf-8", "surrogateescape"))
-    for rel in sorted(untracked.split("\n")):
+    for rel in sorted(untracked.split("\0")):
         if not rel:
             continue
         h.update(b"\0U\0")
         h.update(rel.encode("utf-8", "surrogateescape"))
-        h.update(file_digest(rel).encode("ascii"))
+        h.update(file_digest(os.path.join(top, rel)).encode("ascii", "surrogateescape"))
     return "sha256:" + h.hexdigest()
 
 

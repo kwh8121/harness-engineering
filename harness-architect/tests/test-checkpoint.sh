@@ -46,6 +46,39 @@ dg="$(jq_ 'd["repo"]["tree_digest"]')"
 if [[ "$dg" == sha256:* ]]; then echo "PASS: tree_digest 를 기록한다"
 else echo "FAIL: tree_digest 형식이 아니다 ($dg)"; FAILURES=$((FAILURES+1)); fi
 
+# 4b. tree_digest 는 실행 디렉터리와 무관하다 (I-1: CWD 상대 pathspec 이면 안 된다).
+#     문서화된 사용법이 하위 디렉터리 실행이므로, 루트에서 계산한 지문과
+#     하위 디렉터리에서 계산한 지문이 같아야 하고 루트의 변경도 반영해야 한다.
+echo top-level > "$TMP/repo/top.txt"
+mkdir -p "$TMP/repo/pkg/deep"
+(cd "$TMP/repo" && python3 "$CP" --phase 3)
+dg_root="$(jq_ 'd["repo"]["tree_digest"]')"
+(cd "$TMP/repo/pkg/deep" && python3 "$CP" --phase 3)
+dg_sub="$(jq_ 'd["repo"]["tree_digest"]')"
+assert_eq "$dg_root" "$dg_sub" "tree_digest 는 repo 루트와 하위 디렉터리에서 동일하다"
+echo mutated > "$TMP/repo/top.txt"
+(cd "$TMP/repo/pkg/deep" && python3 "$CP" --phase 3)
+if [[ "$(jq_ 'd["repo"]["tree_digest"]')" != "$dg_sub" ]]; then
+  echo "PASS: 하위 디렉터리에서 실행해도 repo 루트 변경을 지문에 반영한다"
+else
+  echo "FAIL: repo 루트 변경이 지문에 반영되지 않았다"; FAILURES=$((FAILURES+1))
+fi
+rm -rf "$TMP/repo/pkg" "$TMP/repo/top.txt"
+
+# 4c. 비-ASCII 이름의 untracked 파일도 내용이 지문에 반영된다 (I-3: core.quotePath).
+#     이 저장소는 문서를 한국어로 쓰므로 실제로 마주치는 경우다.
+printf '설계 메모\n' > "$TMP/repo/설계메모.md"
+(cd "$TMP/repo" && python3 "$CP" --phase 3)
+dg_before="$(jq_ 'd["repo"]["tree_digest"]')"
+printf '내용이 완전히 바뀜\n' > "$TMP/repo/설계메모.md"
+(cd "$TMP/repo" && python3 "$CP" --phase 3)
+if [[ "$(jq_ 'd["repo"]["tree_digest"]')" != "$dg_before" ]]; then
+  echo "PASS: 비-ASCII untracked 파일의 내용 변경이 지문에 반영된다"
+else
+  echo "FAIL: 비-ASCII untracked 파일 내용 변경이 지문에서 누락됐다"; FAILURES=$((FAILURES+1))
+fi
+rm -f "$TMP/repo/설계메모.md"
+
 # 5. 잘못된 입력을 거부한다
 python3 "$CP" --phase 9 2>/dev/null; assert_exit_code 2 "$?" "허용되지 않는 phase 를 거부한다"
 python3 "$CP" --level H9 2>/dev/null; assert_exit_code 2 "$?" "허용되지 않는 level 을 거부한다"

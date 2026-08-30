@@ -220,6 +220,17 @@ def build_parser():
     p.add_argument("--level")
     p.add_argument("--next", dest="next_action")
     p.add_argument("--goal")
+    p.add_argument("--approved", action="store_true")
+    p.add_argument("--agents", help="쉼표로 구분한 에이전트 id 목록")
+    p.add_argument("--agent-done", dest="agent_done")
+    p.add_argument("--gate", help="<fast|feature|final>:<exit>")
+    p.add_argument("--log-path", dest="log_path")
+    p.add_argument("--review-loop", action="store_true", dest="review_loop")
+    p.add_argument("--human-gate-passed", action="store_true", dest="human_gate")
+    p.add_argument("--artifact", action="append", default=[], help="key=path")
+    p.add_argument("--archive", action="store_true")
+    p.add_argument("--replan", action="store_true",
+                   help="계약을 다시 만든다 — 승인·진행을 초기화하고 phase 3 으로 되돌린다")
     return p
 
 
@@ -240,6 +251,18 @@ def main():
         print("  아무것도 쓰지 않았습니다. 내용을 확인하고 직접 처리하십시오.", file=sys.stderr)
         return EXIT_CORRUPT
 
+    if args.archive:
+        # 진행 중인 작업을 은퇴시키지 않는다.
+        if state["phase"] != "done":
+            p.error(f"--archive 는 phase 가 done 일 때만 가능합니다 (현재 '{state['phase']}')")
+        tid = state["task"]["id"] or "unknown"
+        base = os.path.join(os.path.dirname(path), f"state.done-{tid}")
+        target, n = f"{base}.json", 1
+        while os.path.exists(target):     # 기존 기록을 절대 덮지 않는다
+            target, n = f"{base}-{n}.json", n + 1
+        os.replace(path, target)
+        return EXIT_OK
+
     if args.phase is not None:
         # 역행은 --replan 으로만 한다. 맨 --phase 로 되돌리면 이전 계약의 승인과
         # 진행이 그대로 남는다 — 무엇을 초기화할지 아무도 정하지 않은 상태가 된다.
@@ -255,6 +278,71 @@ def main():
         state["next_action"] = args.next_action
     if args.goal is not None:
         state["task"]["goal"] = args.goal
+
+    prog = state["progress"]
+
+    # --replan: 계약을 다시 만든다. 맨 --phase 로 역행하면 이전 계약의 승인·진행이
+    # 그대로 남아 새 계획으로 흘러든다(이전 승인이 살아 있고 리뷰 루프가 이월된다).
+    # 게이트를 비워도 증거를 잃지 않는다 — 로그 전문은 gates/*.log 에 그대로 있다.
+    if args.replan:
+        if args.phase is not None:
+            p.error("--replan 은 --phase 와 함께 쓰지 않습니다 (항상 phase 3 으로 갑니다)")
+        state["approved"] = False
+        state["phase"] = "3"
+        state["task"]["spec_digest"] = None
+        prog["agents_done"] = []
+        prog["agents_pending"] = []
+        prog["gates"] = []
+        prog["review_loops_used"] = 0
+        prog["human_gate_passed"] = False
+
+    if args.approved:
+        # 승인은 Phase 3 의 산물이다. 다른 Phase 에서 세우면 재개 시 이전 승인이
+        # 실행 권한으로 되살아나는 경로가 열린다.
+        if args.phase != "3":
+            p.error("--approved 는 --phase 3 과 함께 써야 합니다")
+        state["approved"] = True
+        # spec 지문은 스킬이 아니라 여기서 계산한다 — 넘기게 하면 잊거나 틀린다.
+        # _workspace/ 는 tree_digest 에서 제외되므로 이 지문이 없으면 승인된 계약이
+        # 손으로 바뀌어도 재개가 알아채지 못한다.
+        state["task"]["spec_digest"] = spec_digest(resolve(state["artifacts"].get("spec")))
+    if args.agents is not None:
+        # 에이전트 구성은 승인의 산물이다.
+        if not (args.approved and args.phase == "3"):
+            p.error("--agents 는 --phase 3 --approved 와 함께 써야 합니다")
+        ids = [a for a in args.agents.split(",") if a]
+        if not ids:
+            p.error("--agents 가 비었습니다")
+        dup = sorted({x for x in ids if ids.count(x) > 1})
+        if dup:
+            p.error(f"--agents 에 중복된 id: {dup}")
+        unknown = sorted(set(ids) - CATALOG)
+        if unknown:
+            p.error(f"카탈로그 7종에 없는 에이전트: {unknown} (가능: {sorted(CATALOG)})")
+        prog["agents_pending"] = ids
+        prog["agents_done"] = []
+    if args.agent_done:
+        if args.agent_done not in prog["agents_pending"]:
+            p.error(f"'{args.agent_done}' 는 agents_pending 에 없습니다 "
+                    f"(현재: {prog['agents_pending']})")
+        prog["agents_pending"].remove(args.agent_done)
+        prog["agents_done"].append(args.agent_done)
+    if args.gate:
+        tier, _, code = args.gate.partition(":")
+        if tier not in TIERS or not code.isdigit():
+            p.error(f"--gate 형식은 <fast|feature|final>:<exit> 입니다 (받은 값: {args.gate})")
+        attempt = sum(1 for g in prog["gates"] if g.get("tier") == tier) + 1
+        prog["gates"].append({"tier": tier, "exit": int(code), "attempt": attempt,
+                              "recorded_at": now(), "log_path": args.log_path})
+    if args.review_loop:
+        prog["review_loops_used"] += 1
+    if args.human_gate:
+        prog["human_gate_passed"] = True
+    for item in args.artifact:
+        key, _, val = item.partition("=")
+        if key not in state["artifacts"]:
+            p.error(f"알 수 없는 artifact 키 '{key}' (가능: {sorted(state['artifacts'])})")
+        state["artifacts"][key] = val
 
     state["repo"] = repo_fingerprint()
     save(path, state)

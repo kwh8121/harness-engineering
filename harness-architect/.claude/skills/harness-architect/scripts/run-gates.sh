@@ -76,6 +76,17 @@ if [[ "$total" -eq 0 ]]; then
     exit 0
 fi
 
+# 진행 상태에 게이트 결과를 남긴다. 기록 실패는 게이트 판정을 바꾸지 않지만
+# **조용히 넘어가지도 않는다** — 조용한 실패는 재개 기능의 목적을 무너뜨린다.
+if [[ -f "$HERE/checkpoint.py" ]]; then
+    rc_gate=0
+    [[ "$failed" -gt 0 ]] && rc_gate=1
+    if ! python3 "$HERE/checkpoint.py" --gate "$TIER:$rc_gate" --log-path "$LOG" >/dev/null; then
+        echo "run-gates: checkpoint 기록에 실패했습니다 (게이트 판정에는 영향 없음)." >&2
+        echo "  재개 상태가 최신이 아닐 수 있습니다: $(bash "$HERE/harness-paths.sh" --print)/state.json" >&2
+    fi
+fi
+
 if [[ "$failed" -gt 0 ]]; then
     echo "run-gates: $TIER — $failed/$total 실패. 전체 출력: $LOG"
     for c in "${failed_cmds[@]}"; do

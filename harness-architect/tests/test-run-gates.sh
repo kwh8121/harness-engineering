@@ -73,4 +73,21 @@ else
     echo "PASS: 잘못된 tier: non-zero exit"
 fi
 
+# 게이트 실행이 state.json 에 자동 기록된다
+WS_AUTO="$(mktemp -d)"
+printf 'fast\ttrue\n' > "$WS_AUTO/gates.tsv"
+HARNESS_WORKSPACE="$WS_AUTO" bash "$SCRIPT" fast "$WS_AUTO/gates.tsv" "$WS_AUTO/logs" >/dev/null 2>&1
+assert_file_exists "$WS_AUTO/state.json" "run-gates 실행 후 state 가 생긴다"
+tiers="$(python3 -c 'import json,sys;print(",".join(g["tier"] for g in json.load(open(sys.argv[1]))["progress"]["gates"]))' "$WS_AUTO/state.json")"
+assert_contains "$tiers" "fast" "게이트 결과를 자동 기록한다"
+
+# 손상된 state 에서도 게이트 판정은 유지되고, 원본은 보존되며, 경고가 뜬다
+printf '{ broken' > "$WS_AUTO/state.json"
+before="$(cat "$WS_AUTO/state.json")"
+err="$(HARNESS_WORKSPACE="$WS_AUTO" bash "$SCRIPT" fast "$WS_AUTO/gates.tsv" "$WS_AUTO/logs" 2>&1 >/dev/null)"; rc=$?
+assert_exit_code 0 "$rc" "checkpoint 실패가 게이트 exit code 를 바꾸지 않는다"
+assert_eq "$before" "$(cat "$WS_AUTO/state.json")" "손상된 state 원본이 보존된다"
+assert_contains "$err" "checkpoint" "기록 실패를 stderr 로 알린다"
+rm -rf "$WS_AUTO"
+
 report_and_exit

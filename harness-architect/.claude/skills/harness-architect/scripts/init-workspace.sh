@@ -49,6 +49,13 @@ WS="$(harness_workspace)"
 
 mkdir -p "$WS/gates" "$WS/research" "$WS/review"
 
+# Phase 1 진입을 기록한다. 이후 세션이 "어디까지 했나"를 물을 때의 출발점이다.
+if ! python3 "$HERE/checkpoint.py" --phase 1 \
+        --next "게이트 감지 결과 확인 후 Phase 2 프로파일링" \
+        --artifact "gates_tsv=$WS/gates.tsv" >/dev/null; then
+    echo "init-workspace: checkpoint 기록에 실패했습니다 (워크스페이스 준비는 계속합니다)." >&2
+fi
+
 if bash "$HERE/detect-stack.sh" "$PROJECT_DIR" > "$WS/gates.tsv" 2>"$WS/detect-stack.err"; then
     rm -f "$WS/detect-stack.err"
     echo "init-workspace: $WS 준비 완료. 감지된 게이트 $(wc -l < "$WS/gates.tsv") 개:"

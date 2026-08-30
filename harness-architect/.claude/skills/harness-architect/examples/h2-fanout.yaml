@@ -1,0 +1,113 @@
+# H2 — Fan-out / Fan-in. 독립 워커 ≤3 + integrator.
+# 입력: "User Repository, Cache Adapter, Logging 세 모듈을 새 인터페이스로 각각 이관해줘"
+harness_version: 1
+
+task:
+  goal: UserRepository·CacheAdapter·Logger 세 모듈을 신규 포트 인터페이스 구현체로 이관한다
+  scope: [repository, cache, logging]
+  constraints:
+    - 세 모듈의 공개 시그니처는 유지한다
+    - 호출부는 이번 작업에서 건드리지 않는다
+  acceptance_criteria:
+    - 세 모듈이 각각 신규 인터페이스를 구현한다
+    - 기존 단위 테스트가 전부 통과한다
+    - 통합 빌드가 성공한다
+  known_risks: ["세 모듈이 공통 config 타입을 함께 참조할 가능성"]
+  target_environment: local
+
+profile:
+  scope: many
+  coupling: low
+  parallelism: high
+  uncertainty: medium
+  risk: medium
+  side_effect: none
+
+harness:
+  level: H2
+  pattern: fanout
+  rationale: >-
+    세 모듈이 서로를 import 하지 않고 수정 파일도 겹치지 않아 진짜 독립 실행 단위가 3개다.
+    실패 원인에 따라 작업을 재배치할 필요는 없고 통합 시점이 한 번뿐이라 DAG 가 필요 없다 —
+    그래서 H3 가 아니다. 공통 config 참조 여부만 dependency-mapper 가 선행 확인한다.
+
+agents:
+  - id: dependency-mapper
+    model: sonnet
+    responsibility: 세 모듈이 실제로 독립인지, 공유 타입·순환 의존이 없는지 확인한다
+  - id: baseline-tester
+    model: sonnet
+    responsibility: 이관 전 현재 동작을 특성화 테스트로 고정한다
+  - id: implementer
+    model: sonnet
+    responsibility: 워커 3인이 각자 모듈 하나씩 이관한다 (동시 dispatch 아님 — 아래 주 참조)
+  - id: integrator
+    model: opus
+    responsibility: 세 결과의 인터페이스 불일치·머지 충돌·회귀만 확인한다
+  - id: reviewer
+    model: opus
+    responsibility: 통합 diff 를 수용 기준 기준으로 심사한다
+
+controller_skills:                            # 전부 Agent 도구가 필요하다 — 워커에 주입하면 실행되지 않는다
+  - superpowers:using-git-worktrees
+  - superpowers:dispatching-parallel-agents   # 조사 2인 동시 dispatch
+  - superpowers:writing-plans
+  - superpowers:subagent-driven-development   # 워커 태스크 루프
+  - superpowers:requesting-code-review
+  - superpowers:verification-before-completion
+  - superpowers:finishing-a-development-branch  # 격리를 만들었으면 해제도 쌍으로 선언한다
+
+agent_skills:
+  implementer: [superpowers:test-driven-development]
+
+context:
+  dependency-mapper:
+    required: [task, relevant_module_tree, imports, call_sites]
+    forbidden: [full_repository_dump]
+  baseline-tester:
+    required: [task, existing_tests, current_behavior]
+    forbidden: [full_repository_dump]
+  implementer:
+    required: [task, assigned_unit_only, relevant_source, relevant_tests, baseline_report]
+    forbidden: [full_repository_dump, other_workers_context]
+  integrator:
+    required: [task, worker_reports, git_diff, gate_results]
+    forbidden: [full_repository_dump, session_history]
+  reviewer:
+    required: [task, acceptance_criteria, git_diff, gate_results]
+    forbidden: [full_repository_dump, session_history]
+
+verification:
+  gates_tsv: _workspace/harness/gates.tsv
+  local: [fast, feature]
+  final: [feature, final]
+  manual: []
+
+review_policy:
+  blocking: [BLOCKER, MAJOR]
+  max_loops: 2
+  escalation_after: 2
+
+parallelism:
+  enabled: true
+  max_workers: 3
+  # 주: 조사(dependency-mapper ‖ baseline-tester)는 한 메시지에서 동시 dispatch 한다.
+  # 구현 워커는 파일 충돌 때문에 동시 dispatch 하지 않고 superpowers:subagent-driven-development
+  # 의 태스크 루프로 순차 처리한다. "독립 작업 3개"는 병합 단위가 3개라는 뜻이다.
+
+human_gate:
+  required: false
+
+tracking:
+  provider: linear
+  team: Koreatimes
+  mode: project          # 병합 단위 3개를 하나의 성과물로 묶는다
+  project:
+    name: "포트 인터페이스 이관 (Repository·Cache·Logging)"
+  human_gate_approval: terminal
+
+escalation:
+  if_hidden_dependency: dependency-mapper
+  if_baseline_unknown: baseline-tester
+  if_implementation_error: implementer
+  if_gate_fails_repeatedly: superpowers:systematic-debugging

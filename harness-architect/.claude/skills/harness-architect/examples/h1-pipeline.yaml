@@ -1,0 +1,91 @@
+# H1 — Pipeline. implementer → 게이트 → reviewer. 일반적인 기능 개발의 기본형.
+# 입력: "사용자 프로필 페이지에 프로필 이미지 업로드 기능을 추가해줘"
+harness_version: 1
+
+task:
+  goal: 프로필 페이지에서 이미지를 업로드해 저장하고 표시할 수 있게 한다
+  scope: [frontend, api, storage]
+  constraints:
+    - 기존 프로필 저장 흐름을 깨지 않는다
+    - 업로드 크기·MIME 타입을 서버에서 검증한다
+  acceptance_criteria:
+    - 이미지를 선택해 업로드하면 프로필에 반영된다
+    - 허용되지 않은 타입·크기는 4xx 로 거절된다
+    - 기존 프로필 저장 테스트가 계속 통과한다
+  known_risks: ["스토리지 버킷 권한 설정 누락"]
+  target_environment: local
+
+profile:
+  scope: few
+  coupling: medium
+  parallelism: none
+  uncertainty: low
+  risk: medium
+  side_effect: none
+
+harness:
+  level: H1
+  pattern: pipeline
+  rationale: >-
+    FE·API·Storage 세 영역이 하나의 업로드 흐름으로 강하게 묶여 있어 독립 실행 단위로
+    쪼갤 수 없다 — 그래서 H2 가 아니다. 실제 동작이 바뀌고 검증 로직에 회귀 위험이
+    있으므로 게이트만으로는 부족해 독립 reviewer 를 둔다.
+
+agents:
+  - id: implementer
+    model: sonnet
+    responsibility: 업로드 UI·API 핸들러·스토리지 연동을 테스트 우선으로 구현한다
+  - id: reviewer
+    model: opus
+    responsibility: 수용 기준 충족 여부와 검증 로직의 회귀 위험을 diff 기준으로 심사한다
+
+controller_skills:
+  - superpowers:requesting-code-review      # reviewer 를 부르는 쪽이 쓴다
+  - superpowers:verification-before-completion
+  - superpowers:finishing-a-development-branch  # H1 은 worktree 를 만들지 않지만,
+                                                # 브랜치에서 작업하므로 통합 방식은 정해야 한다
+
+agent_skills:
+  implementer: [superpowers:test-driven-development]
+
+context:
+  implementer:
+    required: [task, relevant_source, relevant_tests]
+    optional: [architecture_doc]
+    forbidden: [full_repository_dump, unrelated_docs]
+  reviewer:
+    required: [task, acceptance_criteria, git_diff, gate_results]
+    optional: [architecture_doc]
+    forbidden: [full_repository_dump, unrelated_docs, session_history]
+
+verification:
+  gates_tsv: _workspace/harness/gates.tsv
+  local: [fast, feature]
+  final: [feature, final]
+  manual: []
+
+review_policy:
+  blocking: [BLOCKER, MAJOR]
+  max_loops: 2
+  escalation_after: 2
+
+parallelism:
+  enabled: false
+  max_workers: 1
+
+human_gate:
+  required: false
+
+tracking:
+  provider: linear
+  team: Koreatimes
+  mode: issue            # 작업 단위가 1개이므로 Issue 1건. Project 를 만들 성과물이 아니다
+  issue:
+    id:                  # 생성 후 채워진다 (예: KOR-142)
+  human_gate_approval: terminal
+
+escalation:
+  if_hidden_dependency: dependency-mapper
+  if_baseline_unknown: baseline-tester
+  if_implementation_error: implementer
+  if_gate_fails_repeatedly: superpowers:systematic-debugging

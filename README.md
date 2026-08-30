@@ -44,6 +44,8 @@ Claude Code를 "한 번의 대화를 잘 굴리는 도구"가 아니라 **작업
 | [`ex-13-01-dependency-mapper`](./ex-13-01-dependency-mapper) | 의존성 그래프 → 결정론적 배치 계획 | `Read, Grep, Bash` 만으로 동작하는 `dependency-mapper` 가 `sample-src/` import 그래프를 분석해 위상정렬 결과를 `batches.json` 으로 산출. 기본 mock 모드, `USE_LIVE_LLM=1` 에서 실제 sonnet 호출. |
 | **14장 — 응용 가이드** | | |
 | [`ex-14-10-application-guide`](./ex-14-10-application-guide) | 4 응용 가이드 매핑 — Post-mortem · 플래키 · 성능 · 1인 | 4 application-*.md + `reviewer.md` frontmatter(Post-mortem 전용)와 매핑·교차 참조 정리. 본격 구현은 ex-14-11 (플래키) / ex-14-12 (성능) 로 위임됩니다. |
+| **종합 — 적응형 하네스** | | |
+| [`harness-architect`](./harness-architect) | 작업마다 최소 하네스를 판정하는 라우터 스킬 | 개발 업무를 자연어로 받아 6축 프로파일링 → `H0`~`H3` 판정 → `HarnessSpec` 계약 산출 → 승인 → 실행까지 진행합니다. 에이전트 카탈로그 7종을 고정해 역할 폭증을 막고, 절차적 지식은 superpowers 스킬 12종에 위임하며, 린트·타입·테스트·빌드는 에이전트가 아니라 `run-gates.sh` 의 exit code 가 판정합니다. |
 
 > 추가 예제는 챕터 진행에 따라 같은 컨벤션으로 계속 추가될 예정입니다.
 

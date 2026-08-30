@@ -1,0 +1,8 @@
+{
+  "name": "fixture-node-pnpm",
+  "private": true,
+  "scripts": {
+    "lint": "oxlint",
+    "test": "vitest run"
+  }
+}

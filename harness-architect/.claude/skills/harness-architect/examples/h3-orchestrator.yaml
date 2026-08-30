@@ -1,0 +1,132 @@
+# H3 — Orchestrator + DAG. 자동으로 쉽게 선택되면 안 되는 최상위 레벨.
+# 입력: "인증 시스템을 JWT 에서 OAuth 기반으로 전환하면서 기존 세션과 DB 도 마이그레이션해줘"
+harness_version: 1
+
+task:
+  goal: 인증을 JWT 에서 OAuth 로 전환하고 기존 세션·사용자 레코드를 무중단으로 이관한다
+  scope: [auth, api, db, session]
+  constraints:
+    - 기존 로그인 사용자의 세션을 끊지 않는다
+    - 마이그레이션은 롤백 가능해야 한다
+  acceptance_criteria:
+    - OAuth 로 신규 로그인이 성공한다
+    - 기존 JWT 세션이 만료 전까지 계속 동작한다
+    - 마이그레이션 스크립트가 dry-run 과 롤백을 모두 지원한다
+    - 인증 관련 기존 테스트가 전부 통과한다
+  known_risks:
+    - 세션 저장소 스키마와 사용자 테이블의 결합
+    - 리프레시 토큰 경로에 문서화되지 않은 호출부 존재 가능성
+  target_environment: production
+
+profile:
+  scope: many
+  coupling: high
+  parallelism: none      # coupling: high 이므로 자동으로 none.
+                         # 단위가 1개라는 뜻이 아니다 — 순서 의존으로 묶인 단위가 3개다.
+  uncertainty: high
+  risk: high
+  side_effect: irreversible
+
+harness:
+  level: H3
+  pattern: dag
+  rationale: >-
+    작업 단위(스키마 이관 / OAuth 제공자 연동 / 세션 호환 계층)가 3개이고 구현자 한 명이
+    통째로 들고 갈 수 없어 H1 이 아니다(STEP 2 NO). 단위 사이에 순서 의존이 있어 동시 실행이
+    불가능하고, 통합 검증 실패의 원인이 "숨은 호출부"인지 "기존 동작 오해"인지 "구현 오류"인지에
+    따라 되돌려 보낼 곳이 달라진다 — 단순 fan-in 으로는 이 재라우팅을 표현할 수 없어 H2 도 아니다.
+
+agents:
+  - id: orchestrator
+    model: opus
+    responsibility: DAG 상태 관리, 다음 에이전트 선택, 실패 원인별 재라우팅, Human Gate 진행
+  - id: dependency-mapper
+    model: sonnet
+    responsibility: 인증·세션·DB 의 호출 그래프와 영향 범위를 확정한다
+  - id: baseline-tester
+    model: sonnet
+    responsibility: 현재 로그인·리프레시·로그아웃 동작을 특성화 테스트로 고정한다
+  - id: implementer
+    model: sonnet
+    responsibility: DAG 노드 단위로 구현한다
+  - id: integrator
+    model: opus
+    responsibility: DAG 노드들의 접합부(인터페이스·머지 충돌·회귀)만 확인한다
+  - id: reviewer
+    model: opus
+    responsibility: 인증 경계와 마이그레이션 안전성을 심사한다
+  - id: deployment-agent
+    model: sonnet
+    responsibility: 릴리스 아티팩트·백업·헬스체크·롤백 절차를 준비한다
+
+controller_skills:                            # orchestrator 가 소유한다 (Agent 도구를 가진 유일한 역할)
+  - superpowers:using-git-worktrees
+  - superpowers:dispatching-parallel-agents
+  - superpowers:writing-plans
+  - superpowers:subagent-driven-development
+  - superpowers:requesting-code-review
+  - superpowers:verification-before-completion
+  - superpowers:finishing-a-development-branch  # 정리는 Human Gate 통과 뒤에 한다
+
+agent_skills:
+  implementer: [superpowers:test-driven-development]
+  reviewer: [security-review]                 # risk: high 이므로 보안 렌즈를 주입한다
+
+context:
+  orchestrator:
+    required: [task, dag_state, agent_reports, gate_results]
+    forbidden: [full_repository_dump, source_file_contents]
+  dependency-mapper:
+    required: [task, relevant_module_tree, imports, call_sites, api_contracts]
+    forbidden: [full_repository_dump]
+  baseline-tester:
+    required: [task, existing_tests, current_behavior, api_responses]
+    forbidden: [full_repository_dump]
+  implementer:
+    required: [task, assigned_node_only, relevant_source, relevant_tests, dependency_report, baseline_report]
+    forbidden: [full_repository_dump, other_nodes_context]
+  integrator:
+    required: [task, worker_reports, git_diff, gate_results]
+    forbidden: [full_repository_dump, session_history, worker_prompts]
+  reviewer:
+    required: [task, acceptance_criteria, git_diff, gate_results, baseline_report]
+    forbidden: [full_repository_dump, session_history]
+  deployment-agent:
+    required: [release_artifact, migration_script, rollback_plan, health_check_endpoints]
+    forbidden: [full_repository_dump, secrets]
+
+verification:
+  gates_tsv: _workspace/harness/gates.tsv
+  local: [fast, feature]
+  final: [feature, final]
+  manual:
+    - 마이그레이션 dry-run 결과를 사람이 확인한다
+    - 롤백 절차를 스테이징에서 1회 실제 수행한다
+
+review_policy:
+  blocking: [BLOCKER, MAJOR]
+  max_loops: 3          # risk: high 이므로 2 에서 3 으로 올린다
+  escalation_after: 3
+
+parallelism:
+  enabled: true          # 조사 단계(dependency-mapper ‖ baseline-tester)의 동시 dispatch 용.
+  max_workers: 3         # 구현 노드는 순서 의존이 있어 순차 실행한다.
+
+human_gate:
+  required: true
+  reason: 프로덕션 사용자 인증과 되돌릴 수 없는 DB 마이그레이션을 건드린다
+  before: 마이그레이션 실행 전, 그리고 배포 전 (2회)
+
+tracking:
+  provider: linear
+  team: Koreatimes
+  mode: project
+  project:
+    name: "인증 전환 — JWT → OAuth"
+  human_gate_approval: both   # 마이그레이션·배포 승인은 자리를 비운 사이에도 받을 수 있게
+
+escalation:
+  if_hidden_dependency: dependency-mapper
+  if_baseline_unknown: baseline-tester
+  if_implementation_error: implementer
+  if_gate_fails_repeatedly: superpowers:systematic-debugging

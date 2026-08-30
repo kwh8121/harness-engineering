@@ -1,0 +1,94 @@
+# HarnessSpec v1 — 현재 작업의 실행 계약
+#
+# harness-architect 스킬이 Phase 3 에서 이 스키마대로 _workspace/harness/spec.yaml 을
+# 작성하고, 사용자 승인을 받은 뒤 Phase 4 가 이 파일만 보고 실행한다.
+# 설명문이 아니라 계약이다 — 여기 없는 에이전트는 스폰하지 않고, 여기 없는 게이트는 돌리지 않는다.
+#
+# 아래는 필드별 주석이 달린 레퍼런스이며, 실제 사례는 ../examples/ 4종을 참조한다.
+
+harness_version: 1
+
+task:
+  goal:                  # (필수) 한 문장. 사용자 요청을 그대로 옮기지 말고 검증 가능한 형태로.
+  scope: []              # (필수) 변경이 닿는 영역 목록. 예: [frontend, api, storage]
+  constraints: []        # 지켜야 할 제약. 예: ["기존 로그인 흐름을 깨지 않는다"]
+  acceptance_criteria: []# (필수) 완료 판정 기준. 게이트로 확인 불가능한 항목은 reviewer 가 본다.
+  known_risks: []        # 이미 알고 있는 위험. 비어 있어도 된다.
+  target_environment:    # local | staging | production
+
+profile:                 # (필수) references/profiling.md 의 6축 판정 결과
+  scope: single          # single | few | many        — 변경 영역 개수
+  coupling: low          # low | medium | high        — 변경 간 의존성
+  parallelism: none      # none | some | high         — 독립 실행 가능 작업 수
+  uncertainty: low       # low | medium | high        — 기존 구조/동작의 불명확성
+  risk: low              # low | medium | high        — auth·DB·보안·배포 접촉 여부
+  side_effect: none      # none | reversible | irreversible — 외부 시스템 변경
+
+harness:
+  level: H0              # (필수) H0 | H1 | H2 | H3
+  pattern: single        # single | pipeline | fanout | dag
+  rationale:             # (필수) 왜 이 레벨인가. **한 단계 아래가 왜 불충분한지**를 반드시 포함한다.
+                         # 최소 하네스 원칙이므로 정당화해야 하는 것은 '올린 것'이지 '안 올린 것'이 아니다.
+                         # H0 는 아래 레벨이 없으므로 "STEP 1 세 조건을 전부 만족한다"로 갈음한다.
+
+agents: []               # (필수, H0 은 빈 배열) 카탈로그에서 고른 것만. 새 역할을 만들지 않는다.
+  # - id: implementer    #   references/catalog.md 의 7종 중 하나
+  #   model: sonnet      #   dispatch 시 반드시 명시 (생략하면 세션의 가장 비싼 모델을 상속)
+  #   responsibility:    #   한 문장
+
+controller_skills: []    # 하네스를 운전하는 쪽(harness-architect 스킬 자신, H3 이면 orchestrator)이
+                         # 직접 호출하는 스킬. 계획 수립·서브에이전트 dispatch 처럼
+                         # Agent 도구가 필요한 것은 전부 여기 온다.
+  # - superpowers:writing-plans
+  # - superpowers:subagent-driven-development
+  # - superpowers:dispatching-parallel-agents
+
+agent_skills: {}         # 워커에게 프롬프트로 주입할 스킬. 워커는 Agent 도구가 없으므로
+                         # 다른 에이전트를 부르는 스킬을 여기 넣으면 실행되지 않는다.
+  # implementer: [superpowers:test-driven-development]
+  # reviewer: [security-review]
+
+context: {}              # (필수, 에이전트가 있으면) 에이전트별 컨텍스트 예산.
+  # implementer:         #   references/context-budget.md 의 기본값을 인스턴스화한 것.
+  #   required: [task, relevant_source, relevant_tests]
+  #   optional: [architecture_doc]
+  #   forbidden: [full_repository_dump]   # 모든 에이전트에 항상 포함된다
+
+verification:            # (필수) 전부 run-gates.sh 가 실행한다. AI 가 대신 판정하지 않는다.
+  gates_tsv: _workspace/harness/gates.tsv
+  local: []              # 각 구현 단위 직후 도는 tier. 보통 [fast] 또는 [fast, feature]
+  final: []              # 종료 직전 도는 tier. 보통 [feature, final]
+  manual: []             # 게이트로 자동화 불가능해 사람이 봐야 하는 항목
+
+review_policy:
+  blocking: [BLOCKER, MAJOR]  # MINOR = 권고, NIT = 게이트에서 무시
+  max_loops: 2                # risk: high 인 경우에만 3
+  escalation_after: 2         # 초과하면 고치지 말고 사람에게 넘긴다
+
+parallelism:
+  enabled: false
+  max_workers: 1         # H2/H3 에서도 상한 3. 4 이상은 병합 비용이 병렬 이득을 잠식한다.
+
+human_gate:
+  required: false
+  reason:                # required: true 일 때 필수. 어떤 부작용 때문인지 한 문장.
+  before:                # 승인을 받아야 하는 시점. 예: "마이그레이션 실행 전"
+
+tracking:                # 진행 상황을 사람이 읽을 수 있는 곳에 남긴다. references/linear-tracking.md
+  provider: none         # linear | none.  H0 은 항상 none (단일 변경까지 이슈로 만들지 않는다)
+  team:                  # provider: linear 일 때 필수. Linear 팀 이름 또는 ID
+  mode:                  # issue (H1) | project (H2/H3). 레벨과 일치해야 한다
+  project:               # mode: project 일 때. 기존 프로젝트에 붙이려면 id 를 준다
+    name:
+    id:
+  issue:                 # mode: issue 일 때. 생성 후 식별자가 채워진다 (예: KOR-123)
+    id:
+  human_gate_approval: terminal   # terminal | linear | both
+                         # linear·both 는 사용자가 Linear 에서 상태를 바꿀 때까지 기다린다.
+                         # 무한 대기하지 않는다 — 상한에 닿으면 사용자에게 알리고 멈춘다.
+
+escalation:              # 실패 원인별 재라우팅 대상 (H3 의 Feedback Router 가 사용)
+  if_hidden_dependency: dependency-mapper
+  if_baseline_unknown: baseline-tester
+  if_implementation_error: implementer
+  if_gate_fails_repeatedly: superpowers:systematic-debugging

@@ -81,12 +81,20 @@ git -C "$TMP/repo" checkout -q -b other
 assert_eq "11" "$(run)" "브랜치가 바뀌면 강등"
 git -C "$TMP/repo" checkout -q -
 
-# 10. worktree 제거 → 강등
+# 10. worktree 존재 신호를 격리한다 — 기록된 worktree 경로만 사라지게 한다.
+#     branch·HEAD·tree_digest 를 전부 고정하므로 exit 11 은 worktree 검사에서만 나온다.
+#     (run() 은 $TMP/repo 로 cd 하므로 여기서는 못 쓴다 — worktree 안에서 직접 부른다.)
 rm -f "$STATE"
 git -C "$TMP/repo" worktree add -q "$TMP/repo/.worktrees/w" -b wbranch
 (cd "$TMP/repo/.worktrees/w" && python3 "$CP" --phase 2 --goal "g")
-git -C "$TMP/repo" worktree remove --force "$TMP/repo/.worktrees/w"
-assert_eq "11" "$(run)" "worktree 가 제거되면 강등"
+assert_eq "10" "$( (cd "$TMP/repo/.worktrees/w" && python3 "$CHECK" >/dev/null 2>&1); echo $? )" \
+    "worktree 안에서 아무것도 안 움직였으면 자동 재개 후보 (앵커)"
+git -C "$TMP/repo" worktree move "$TMP/repo/.worktrees/w" "$TMP/repo/.worktrees/w2"
+assert_eq "11" "$( (cd "$TMP/repo/.worktrees/w2" && python3 "$CHECK" >/dev/null 2>&1); echo $? )" \
+    "기록된 worktree 경로가 사라지면 강등 (branch·HEAD·작업트리 동일)"
+briefwt="$( (cd "$TMP/repo/.worktrees/w2" && python3 "$CHECK" 2>&1) )"
+assert_contains "$briefwt" "worktree 제거됨" "worktree 불일치 메시지를 낸다"
+git -C "$TMP/repo" worktree remove --force "$TMP/repo/.worktrees/w2"
 
 # 11. 같은 HEAD 에서 작업 트리 변경 → 강등 (tree_digest)
 rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")

@@ -28,9 +28,14 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 - exit 10 → **자동 재개 후보.** 브리핑의 `작업:` 줄이 **지금 사용자가 요청한 작업과 같은지
   판단한다.** 같으면 기록된 Phase부터 이어서 진행한다. 같지 않거나 확신할 수 없으면
   exit 11과 똑같이 다룬다 — 남의 작업을 이어받지 않는다.
-- exit 11 → **사람 판단.** 브리핑을 제시하고 **멈춘다.** 재개·재판정·폐기를 사용자가 고른다.
-  **Phase 3 이상이면 승인이 남아 있어도 새로 승인받는다.** 이전 세션의 승인은 이번 세션의
-  실행 권한이 아니다.
+- exit 11 → **사람 판단.** 브리핑을 제시하고 **멈춘다.** 사용자가 셋 중 하나를 고른다:
+  - **재개** — 기록된 Phase 부터 이어서 진행한다. **Phase 3 이상이면 승인이 남아 있어도
+    새로 승인받는다.** 이전 세션의 승인은 이번 세션의 실행 권한이 아니다.
+  - **재판정** — Phase 2 로 돌아가 6축을 다시 판정한 뒤
+    `Bash: python3 .claude/skills/harness-architect/scripts/checkpoint.py --replan --level <새 레벨>`
+    으로 승인·진행·게이트·리뷰 루프를 초기화하고 Phase 3(HarnessSpec 재작성)부터 다시 간다.
+  - **폐기** — `Bash: python3 .claude/skills/harness-architect/scripts/checkpoint.py --discard`
+    로 현재 state 를 `state.discarded-<id>.json` 으로 보존하고 지운 뒤 Phase 0 으로 간다.
 - exit 12 → 완료된 이전 작업이 남아 있다. 새 작업을 시작할지 묻고, 승인되면
   `checkpoint.py --archive` 로 보존한 뒤 Phase 0으로 간다.
 
@@ -113,6 +118,9 @@ BLOCKER 는 sub-issue 로 승격한다.
 
 실행 중에도 기록한다 (`checkpoint.py`):
 
+- **H2/H3**: `superpowers:writing-plans` 로 SDD 워크스페이스를 만든 직후, 그 원장 경로를 기록한다:
+  `--artifact sdd_ledger=<.superpowers/sdd/<slug>/ 경로>`. state 는 태스크 단위 진행을
+  재구현하지 않고 **경로로만** 가리킨다 — 단위 복원은 SDD 자신의 ledger check 가 한다.
 - 역할 하나가 끝날 때마다: `--agent-done <id> --next "<다음 행동>"`.
   **H2/H3 의 `implementer` 는 SDD 루프 전체가 끝났을 때만** 부른다 — 역할 마일스톤이지
   워커 하나·작업 단위 하나가 아니다.

@@ -60,17 +60,41 @@ def validate_state(state):
             errs.append(f"{key} 가 매핑이 아닙니다 ({type(state.get(key)).__name__})")
     if not isinstance(state.get("phase", ""), str):
         errs.append("phase 가 문자열이 아닙니다")
+    if not isinstance(state.get("approved", False), bool):
+        errs.append("approved 가 bool 이 아닙니다")
+
+    # 컨테이너 타입뿐 아니라 그 안의 원소·값 타입까지 본다. render()·drift() 는
+    # 이 값들을 join 하거나 경로로 넘기므로, str 이어야 할 자리에 int 가 들어오면
+    # 검증을 통과하고도 처리되지 않은 TypeError 로 죽는다.
+    task = state.get("task")
+    if isinstance(task, dict):
+        for key in ("id", "goal"):
+            if task.get(key) is not None and not isinstance(task.get(key), str):
+                errs.append(f"task.{key} 가 문자열이 아닙니다")
+
+    art = state.get("artifacts")
+    if isinstance(art, dict):
+        for key, val in art.items():
+            if val is not None and not isinstance(val, str):
+                errs.append(f"artifacts.{key} 가 문자열이 아닙니다")
+
     prog = state.get("progress")
     if isinstance(prog, dict):
         for key in ("agents_done", "agents_pending", "gates"):
             if not isinstance(prog.get(key, []), list):
                 errs.append(f"progress.{key} 가 리스트가 아닙니다")
+        for key in ("agents_done", "agents_pending"):
+            for i, a in enumerate(prog.get(key) or []):
+                if not isinstance(a, str):
+                    errs.append(f"progress.{key}[{i}] 가 문자열이 아닙니다")
         for i, g in enumerate(prog.get("gates") or []):
             if not isinstance(g, dict):
                 errs.append(f"progress.gates[{i}] 가 매핑이 아닙니다")
         for key in ("review_loops_used",):
             if not isinstance(prog.get(key, 0), int):
                 errs.append(f"progress.{key} 가 정수가 아닙니다")
+        if not isinstance(prog.get("human_gate_passed", False), bool):
+            errs.append("progress.human_gate_passed 가 bool 이 아닙니다")
     return errs
 
 
@@ -166,21 +190,36 @@ def main():
         print("  추측으로 복구하지 않습니다. 내용을 확인하고 이어갈지 결정하십시오.")
         return EXIT_HUMAN
 
-    phase = str(state.get("phase", "0"))
-    if phase == "done":
-        render(state, [], path)
-        return EXIT_DONE
-
-    marks = drift(state.get("repo") or {}, repo_fingerprint(), state)
+    # validate_state() 가 예상하지 못한 형태를 위한 무조건 백스톱이다. 정밀 검증은
+    # 항상 어떤 모양을 놓칠 수 있는데 '손상된 state 는 예외 없이 exit 11'이라는
+    # 계약은 무조건이므로 방어도 무조건이어야 한다. 여기서 traceback 을 전파하면
+    # exit 1 이 나가고, exit code 로 판정하는 호출부가 계약을 신뢰할 수 없게 된다 —
+    # 반드시 11 을 반환한다.
     try:
-        numeric = int(phase)
-    except ValueError:
-        render(state, marks, path)
-        return EXIT_HUMAN
+        phase = str(state.get("phase", "0"))
+        if phase == "done":
+            render(state, [], path)
+            return EXIT_DONE
 
-    verdict = EXIT_AUTO if (numeric <= AUTO_MAX_PHASE and not marks) else EXIT_HUMAN
-    render(state, marks, path)
-    return verdict
+        marks = drift(state.get("repo") or {}, repo_fingerprint(), state)
+        try:
+            numeric = int(phase)
+        except ValueError:
+            render(state, marks, path)
+            return EXIT_HUMAN
+
+        # 하한이 없으면 {"phase":"-1"} 이 -1 <= 2 로 자동 재개 후보가 된다 —
+        # 말이 안 되는 state 를 자동 재개하는 위험한 방향이다. 0 으로 하한을 건다.
+        verdict = (EXIT_AUTO
+                   if (0 <= numeric <= AUTO_MAX_PHASE and not marks)
+                   else EXIT_HUMAN)
+        render(state, marks, path)
+        return verdict
+    except Exception as e:                    # noqa: BLE001 — 계약이 무조건이므로 방어도 무조건이다
+        print(f"[재개] state 를 해석하는 중 예기치 못한 오류: {e}")
+        print(f"  파일: {path}")
+        print("  손상된 state 로 판단합니다. 내용을 확인하고 이어갈지 결정하십시오.")
+        return EXIT_HUMAN
 
 
 if __name__ == "__main__":

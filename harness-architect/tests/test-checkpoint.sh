@@ -73,6 +73,19 @@ python3 "$CP" --phase 4 2>/dev/null; rc=$?
 assert_exit_code 3 "$rc" "비-UTF-8 손상에서도 exit 3"
 assert_eq "$before" "$(cat "$STATE" 2>/dev/null | od -An -tx1)" "비-UTF-8 원본 바이트가 보존된다"
 
+# 7c. 구조가 깨진 state(파싱은 됨)도 fail-closed — KeyError traceback + exit 1 이 아니라 exit 3
+python3 -c "import json,sys;json.dump({'schema_version':1,'phase':'2','repo':'broken'},open(sys.argv[1],'w'))" "$STATE"
+before="$(cat "$STATE")"
+python3 "$CP" --phase 4 2>/dev/null; rc=$?
+assert_exit_code 3 "$rc" "repo 가 매핑이 아니면 exit 3"
+assert_eq "$before" "$(cat "$STATE")" "구조 손상 원본이 보존된다 (repo)"
+
+python3 -c "import json,sys;json.dump({'schema_version':1,'phase':'2','progress':[]},open(sys.argv[1],'w'))" "$STATE"
+before="$(cat "$STATE")"
+python3 "$CP" --phase 4 2>/dev/null; rc=$?
+assert_exit_code 3 "$rc" "progress 가 리스트면 exit 3"
+assert_eq "$before" "$(cat "$STATE")" "구조 손상 원본이 보존된다 (progress)"
+
 # 8. 반복 쓰기 중 reader 가 불완전 JSON 을 보지 않는다 (원자성)
 cp "$TMP/good.json" "$STATE"
 ( for i in $(seq 1 40); do python3 "$CP" --next "n$i" >/dev/null 2>&1; done ) &
@@ -94,6 +107,17 @@ python3 "$CP" --phase 3 --approved --agents implementer,reviewer
 assert_eq "True" "$(jq_ 'd["approved"]')" "phase 3 과 함께면 승인을 세운다"
 assert_eq "implementer,reviewer" "$(jq_ '",".join(d["progress"]["agents_pending"])')" \
     "agents_pending 을 초기화한다"
+
+# 9b. --approved 는 artifacts.spec 파일을 직접 읽어 해시한다 (호출자가 해시를 넘기지 않는다)
+mkdir -p "$TMP/repo/_workspace/harness"
+printf 'harness_version: 1\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+(cd "$TMP/repo" && python3 "$CP" --artifact spec=_workspace/harness/spec.yaml)
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer)
+dg="$(jq_ 'd["task"]["spec_digest"]')"
+case "$dg" in
+    sha256:*) echo "PASS: --approved 가 spec 파일을 직접 sha256 해시한다" ;;
+    *) echo "FAIL: spec_digest 가 sha256 형식이 아니다 ($dg)"; FAILURES=$((FAILURES+1)) ;;
+esac
 
 # 10. 카탈로그 밖 에이전트를 거부한다
 python3 "$CP" --phase 3 --approved --agents implementer,ghost-agent 2>/dev/null

@@ -191,8 +191,28 @@ def load(path):
     if data.get("schema_version") != SCHEMA_VERSION:
         return None, (f"지원하지 않는 schema_version={data.get('schema_version')} "
                       f"(이 스크립트는 {SCHEMA_VERSION})")
+
+    # 손으로 고친 부분 state 도 traceback 을 내지 않게 한다. 파싱은 됐지만 중첩
+    # 구획이 빠졌거나 타입이 틀린 state 는 fail-closed(exit 3)로 다뤄야지, 나중에
+    # state["task"]["id"] 나 prog = state["progress"] 에서 KeyError·TypeError 로
+    # 죽으면 안 된다(자동 호출부는 exit 3 만 본다). schema_version 은 맞지만
+    # 구조가 깨진 경우는 미지원 schema 와 같은 등급으로 거부한다.
+    for key in ("task", "repo", "artifacts", "progress"):
+        if not isinstance(data.get(key, {}), dict):
+            return None, f"{key} 가 매핑이 아닙니다 ({type(data.get(key)).__name__})"
+    prog_in = data.get("progress") or {}
+    for key in ("agents_done", "agents_pending", "gates"):
+        if not isinstance(prog_in.get(key, []), list):
+            return None, f"progress.{key} 가 리스트가 아닙니다"
+
     base = blank_state()
     base.update(data)
+    # base.update 는 최상위 키를 통째로 갈아치운다. 중첩 구획을 한 단계 더 병합해
+    # 빠진 하위 키(task.id 등)가 사라지지 않고 blank_state() 기본값으로 채워지게 한다.
+    for key in ("task", "repo", "artifacts", "progress"):
+        section = blank_state()[key]
+        section.update(data.get(key) or {})
+        base[key] = section
     return base, None
 
 

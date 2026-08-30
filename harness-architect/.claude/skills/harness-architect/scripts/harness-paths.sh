@@ -40,3 +40,18 @@ harness_workspace() {
     fi
     printf '%s/_workspace/harness\n' "$(harness_root)"
 }
+
+# 직접 실행되면(`bash harness-paths.sh --print`) 워크스페이스 경로를 낸다.
+# python3 진입점(checkpoint.py·resume-check.py)이 경로 계산을 복제하지 않도록
+# 하는 유일한 목적이다 — 계산 로직의 진실의 원천은 이 파일 하나로 유지한다.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-}" in
+        --print)      harness_workspace ;;
+        # artifacts 에 상대 경로로 적힌 산출물(spec.yaml 등)을 두 스크립트가 같은
+        # 기준으로 해석하도록 루트도 낸다. HARNESS_WORKSPACE 로 워크스페이스만
+        # 옮긴 경우에도 루트는 여전히 메인 워크트리다.
+        --print-root) harness_root ;;
+        *) echo "usage: harness-paths.sh --print|--print-root  (그 외에는 source 해서 쓴다)" >&2
+           exit 2 ;;
+    esac
+fi

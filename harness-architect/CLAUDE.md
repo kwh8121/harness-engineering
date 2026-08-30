@@ -13,12 +13,15 @@
 - 위 키워드는 `harness-architect` 스킬에 라우팅
 
 ## 구성
-- `.claude/skills/harness-architect/SKILL.md` — Phase 0~5 오케스트레이터
+- `.claude/skills/harness-architect/SKILL.md` — Phase −1~5 오케스트레이터 (Phase −1 은 세션 재개 판정)
 - `.claude/skills/harness-architect/references/*.md` — profiling / routing / catalog / context-budget / linear-tracking
 - `.claude/skills/harness-architect/schemas/harness-spec.yaml` — 실행 계약 스키마
 - `.claude/skills/harness-architect/examples/*.yaml` — H0~H3 판정 사례 4종
 - `.claude/skills/harness-architect/scripts/` — detect-stack / run-gates / init-workspace /
-  gate-summary (셸), validate-spec / guard-readonly (파이썬)
+  gate-summary / harness-paths / check-superpowers (셸),
+  validate-spec / guard-readonly / checkpoint / resume-check (파이썬)
+  - checkpoint / resume-check 는 `_workspace/harness/state.json` 으로 세션 간 재개를 지원한다.
+    `checkpoint.py` 의 `CATALOG` 상수는 `validate-spec.py` · `references/catalog.md` 의 7종과 같아야 한다.
 - `.claude/settings.json` — guard-readonly 를 PreToolUse 훅으로 등록
 - `.claude/agents/*.md` — 카탈로그 7종
 - `tests/` — 스크립트 bash 테스트 (`bash tests/run-all.sh`)
@@ -34,6 +37,8 @@
 - 구현 워커를 동시에 여러 개 dispatch 하지 않는다 (`max_workers: 3` 은 병합 단위 수)
 - 리뷰 루프 상한 2회 (risk: high 만 3회) — 초과 시 고치지 말고 사람에게 넘긴다
 - 자동 커밋 금지, `_workspace/` 보존
+- 진행을 기록한다 — Phase 전환·역할 완료마다 `checkpoint.py`. 기록 실패는 멈추지 않지만 조용히 넘기지도 않는다
+- 승인은 세션을 넘어 상속되지 않는다 — Phase 3 이상에서 재개하면 `resume-check.py` 가 exit 11 로 사람에게 넘기고, 새로 승인받는다
 - Linear 쓰기는 컨트롤러만 한다 — 워커·orchestrator 는 상태 토큰만 반환한다
 - H0 은 Linear 에 기록하지 않는다. 추적 실패는 하네스를 멈추지 않는다
 - 이식성: `.claude/skills/harness-architect/` + `.claude/agents/*.md` 를 폴더째 복사하면 그대로 동작한다

@@ -20,6 +20,27 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 - 진행 중인 작업의 하네스를 재판정할 때 (`_workspace/harness/spec.yaml` 덮어쓰기)
 - **쓰지 않을 때**: 코드 변경이 없는 질문·조사·설명. 하네스는 실행 계약이지 대화 도구가 아니다.
 
+## Phase −1 — 재개 판정 (Phase 0보다 먼저)
+
+`Bash: python3 .claude/skills/harness-architect/scripts/resume-check.py`
+
+- exit 0 → 재개할 것 없음. Phase 0으로 간다.
+- exit 10 → **자동 재개 후보.** 브리핑의 `작업:` 줄이 **지금 사용자가 요청한 작업과 같은지
+  판단한다.** 같으면 기록된 Phase부터 이어서 진행한다. 같지 않거나 확신할 수 없으면
+  exit 11과 똑같이 다룬다 — 남의 작업을 이어받지 않는다.
+- exit 11 → **사람 판단.** 브리핑을 제시하고 **멈춘다.** 재개·재판정·폐기를 사용자가 고른다.
+  **Phase 3 이상이면 승인이 남아 있어도 새로 승인받는다.** 이전 세션의 승인은 이번 세션의
+  실행 권한이 아니다.
+- exit 12 → 완료된 이전 작업이 남아 있다. 새 작업을 시작할지 묻고, 승인되면
+  `checkpoint.py --archive` 로 보존한 뒤 Phase 0으로 간다.
+
+state가 손상됐다는 브리핑이 나오면 **추측으로 복구하지 않는다.** 파일을 사용자에게 보이고
+이어갈지 새로 시작할지 묻는다.
+
+> **하네스 어댑터 결합면.** 이 Phase 는 Claude Code 하네스에 묶여 있다 — `state.json` 경로 규약,
+> `Bash` 툴로 스크립트를 부르는 방식, exit code 로 분기하는 흐름. 나중에 Codex·OpenCode 로
+> 이식할 때 하네스 어댑터가 대체해야 하는 Claude 결합 표면 중 하나다. **지금은 이식 작업을 하지 않는다.**
+
 ## Phase 0 — 입력 정규화
 
 1. `task` 6필드(goal / scope / constraints / acceptance_criteria / known_risks / target_environment)를
@@ -27,6 +48,8 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 2. **답에 따라 레벨 판정이나 Human Gate 가 뒤집히는 것만 질문한다.** 레포를 읽어 알 수 있는 것은 묻지 않는다.
 3. `acceptance_criteria` 를 쓸 수 없을 만큼 목표가 불명확하면 여기서 멈추고
    **REQUIRED SUB-SKILL:** Use superpowers:brainstorming.
+4. 정규화가 끝나면 기록한다:
+   `Bash: python3 .claude/skills/harness-architect/scripts/checkpoint.py --phase 0 --goal "<정규화한 goal>"`
 
 ## Phase 1 — 결정론적 게이트 탐지
 
@@ -48,6 +71,8 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 1. `references/profiling.md` 6축을 판정한다. 각 축에 **레포에서 확인한 근거 한 줄**을 붙인다.
 2. `references/routing.md` 판정 트리 5스텝으로 `level` 과 `human_gate` 를 결정한다.
 3. 고른 레벨보다 **한 단계 아래가 왜 안 되는지** 한 문장으로 쓴다. 못 쓰면 아래 레벨이 맞다.
+4. 판정이 끝나면 기록한다:
+   `Bash: python3 .claude/skills/harness-architect/scripts/checkpoint.py --phase 2 --level <판정> --next "<다음 행동>"`
 
 ## Phase 3 — HarnessSpec 산출 + 승인 게이트
 
@@ -64,7 +89,8 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
    **쓰기 실패는 작업을 멈추지 않는다** — 한 줄로 알리고 진행한다.
 4. **한 화면 요약**을 제시한다: 레벨 + 근거 / 에이전트와 모델 / 게이트 / 리뷰 루프 상한 /
    Human Gate 여부와 사유 / 병렬도 / 추적 링크. validator 경고가 있으면 함께 보인다.
-5. **승인을 받는다.** 승인되면 상태를 `Triage` → `Todo` 로 올린다.
+5. **승인을 받는다.** 승인되면 상태를 `Triage` → `Todo` 로 올리고, 승인 직후 기록한다:
+   `Bash: python3 .claude/skills/harness-architect/scripts/checkpoint.py --phase 3 --approved --agents <spec의 agents id 쉼표 목록> --artifact spec=_workspace/harness/spec.yaml`
 
 ## Phase 4 — 실행
 
@@ -85,6 +111,14 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 (**로그 전문은 붙이지 않는다**). 리뷰는 종료 시 1건으로 요약하고, 루프 상한을 넘긴 미해결
 BLOCKER 는 sub-issue 로 승격한다.
 
+실행 중에도 기록한다 (`checkpoint.py`):
+
+- 역할 하나가 끝날 때마다: `--agent-done <id> --next "<다음 행동>"`.
+  **H2/H3 의 `implementer` 는 SDD 루프 전체가 끝났을 때만** 부른다 — 역할 마일스톤이지
+  워커 하나·작업 단위 하나가 아니다.
+- 리뷰 루프를 한 번 소진할 때마다: `--review-loop`.
+- (`run-gates.sh` 는 tier 실행 시 `--gate <tier>:<exit>` 를 자동으로 기록한다 — 손으로 부르지 않는다.)
+
 ## Phase 5 — 종료
 
 1. `Bash: bash .claude/skills/harness-architect/scripts/run-gates.sh final`
@@ -94,6 +128,8 @@ BLOCKER 는 sub-issue 로 승격한다.
    `tracking.human_gate_approval` 이 `linear`/`both` 면 사용자가 Linear 에서 `Todo` 로 바꿀 때까지
    기다린다 — **무한 대기하지 않는다.** 상한에 닿으면 알리고 멈춘다.
    완료되면 상태를 `Done` 으로 올리고 최종 게이트 결과를 코멘트로 남긴다.
+   Human Gate 를 통과하면 기록한다:
+   `Bash: python3 .claude/skills/harness-architect/scripts/checkpoint.py --human-gate-passed`
 4. **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch.
    **Phase 4 에서 worktree 를 만들었으면(H2·H3) 이 단계는 필수다** — 격리를 절차에 넣었으면
    해제도 절차에 있어야 한다. H0·H1 은 브랜치에서 작업한 경우에만 호출한다.
@@ -101,11 +137,18 @@ BLOCKER 는 sub-issue 로 승격한다.
    **Linear 상태는 정리를 트리거하지 않는다** — 상태로는 정리를 억제하기만 한다.
    `In Progress` 면 경고하고 멈추고, `Canceled` 면 폐기 메뉴를 제시만 한다.
    근거와 전체 규칙은 `references/routing.md` 의 "작업 공간 정리".
+5. 종료를 기록한다:
+   `Bash: python3 .claude/skills/harness-architect/scripts/checkpoint.py --phase done`
 
 ## 불변 규칙
 
 - **최소 하네스 우선**: 안전하게 완료 가능한 가장 단순한 하네스를 고른다. 승격에는 근거 문장이 필요하다.
 - **승인 없이 스폰 금지**: Phase 3 승인 전에 에이전트를 띄우지 않는다.
+- **진행을 기록한다**: Phase 전환과 역할 완료마다 `checkpoint.py` 를 부른다. 기록하지 않으면
+  다음 세션이 처음부터 다시 판정하게 되고, 같은 작업에 다른 레벨이 나올 수 있다.
+  기록 실패는 하네스를 멈추지 않지만 조용히 넘어가지도 않는다.
+- **승인은 세션을 넘어 상속되지 않는다**: 재개 시 `approved: true` 는 사실 기록일 뿐
+  실행 권한이 아니다. Phase 3 이상에서 재개하면 반드시 새로 승인받는다.
 - **결정론적 판정 분리**: 포맷·린트·타입·테스트·빌드는 `run-gates.sh` 의 exit code 가 판정한다. AI 리뷰어에게 시키지 않고, 게이트 실패를 리뷰어에게 보내지 않는다.
 - **게이트 명령을 지어내지 않는다**: 감지 실패 시 추측하지 말고 사용자에게 묻는다.
 - **역할을 새로 만들지 않는다**: 에이전트는 카탈로그 7종에서만 고른다. 반복 Procedure 는 Agent 가 아니라 Skill 이다.

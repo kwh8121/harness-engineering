@@ -83,10 +83,10 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 
 - [ ] **스크립트 테스트** — `bash tests/run-all.sh`
       → 기대: 마지막 줄이 `run-all: 전체 통과 — PASS <n> / FAIL 0` 이고 exit 0
-      (2026-08-30 기준 `n = 132`)
+      (2026-08-30 기준 `n = 252` — 재개 테스트 `test-checkpoint` · `test-resume-check` 포함)
 
       > **판정 기준은 `FAIL 0` 과 exit code 이지 PASS 개수가 아니다.** 테스트를 추가하면
-      > 이 수치는 늘어난다 — 예전에 `PASS 35` 로 못박아 둔 탓에 실제 132 가 되도록
+      > 이 수치는 늘어난다 — 예전에 `PASS 35` 로 못박아 둔 탓에 그 사이 실제 250 을 넘도록
       > 아무도 눈치채지 못했다.
       >
       > 하위 테스트 파일은 각자 `=== all tests passed ===` 를 찍으므로 **출력의 꼬리만
@@ -178,12 +178,21 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 - [ ] **`.claude/settings.json` 이 훅을 등록하고 있다** — 없으면 가드는 걸리지 않는다
       (`python3 -c "import json;print(json.load(open('.claude/settings.json'))['hooks']['PreToolUse'])"`)
 
+- [ ] **세션 재개가 동작한다** — `tests/` 의 `test-checkpoint` · `test-resume-check`
+      (둘 다 `run-all.sh` 에 포함되지만 재개 로직을 고쳤다면 단독으로도 돌린다)
+      → 확인: `checkpoint.py` 는 Phase 번호를 낮추는 호출을 거부하고(강등은 `--replan`),
+      손상된 state 를 만나면 덮어쓰지 않고 exit 3. `resume-check.py` 는
+      exit 0(재개 없음) / 10(자동 재개 후보, Phase ≤ `AUTO_MAX_PHASE`=2, 드리프트 없음) /
+      11(사람 판단·손상 state 포함) / 12(완료된 이전 작업) 를 낸다.
+      `checkpoint.py` 의 `SCHEMA_VERSION` · `CATALOG` 이 `resume-check.py` 와 공유되는지 본다
+
 - [ ] **SKILL.md 심사** — `bash ../ex-05-13-skill-md-reviewer/.claude/skills/reviewing-skill-md/scripts/collect-metrics.sh .claude/skills/harness-architect/SKILL.md`
       → 기대: `line_count` < 300, `frontmatter_chars` < 800, `has_references_dir: yes`,
       description 이 트리거 조건으로 시작
 
-- [ ] **SKILL.md 가 참조하는 경로가 실존** — references 4종·schemas·scripts 3종
-      (`_workspace/harness/spec.yaml` 은 런타임 산출물이라 없는 게 정상)
+- [ ] **SKILL.md 가 참조하는 경로가 실존** — references 5종·schemas·scripts 6종
+      (init-workspace / run-gates / gate-summary / validate-spec / checkpoint / resume-check).
+      `_workspace/harness/` 아래(`spec.yaml` · `gates.tsv` · `state.json`)는 런타임 산출물이라 없는 게 정상
 
 - [ ] **README 의 수치가 실측과 일치** — SKILL.md 줄 수 / 에이전트 수 / 픽스처 수 / assertion 수
 
@@ -235,8 +244,10 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 
 ## B-4. 다른 저장소로 이식할 때
 
-- [ ] `.claude/skills/harness-architect/` 와 `.claude/agents/*.md` **두 경로만** 복사했다
-      (`tests/` · `fixtures/` · `evals/` 는 이식 경계 밖)
+- [ ] `.claude/skills/harness-architect/` · `.claude/agents/*.md` · `.claude/settings.json`
+      **세 경로를** 복사(또는 병합)했다 — `settings.json` 이 읽기 전용 가드 훅을 등록한다.
+      경계는 `MIGRATION.md` 의 "이식 경계" 와 일치한다
+      (`tests/` · `fixtures/` · `evals/` · 루트 `*.md` 는 이식 경계 밖)
 - [ ] 절대 경로 하드코딩이 없다 — `grep -rn "/home/\|/Users/" .claude/` 가 아무것도 내지 않는다
 - [ ] 이식한 저장소에서 `init-workspace.sh` 가 게이트를 감지한다.
       감지 못 하면(exit 3) 그 저장소의 검증 명령을 `gates.tsv` 에 기록했다

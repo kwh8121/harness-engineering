@@ -12,7 +12,7 @@
 
 ```
 Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Agent Catalog (7종)
-         (분석 + 판정 + 구성안)      (실행 계약)     ├─▶ superpowers Skills (12종)
+         (분석 + 판정 + 구성안)      (실행 계약)     ├─▶ 위임 스킬 12종 (superpowers 11 + security-review)
                                                     └─▶ Deterministic Gates (exit code)
 ```
 
@@ -40,11 +40,11 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 
 ## 구성
 
-- `.claude/skills/harness-architect/SKILL.md` — Phase 0~5 오케스트레이터 (83줄)
+- `.claude/skills/harness-architect/SKILL.md` — Phase 0~5 오케스트레이터 (105줄)
 - `.claude/skills/harness-architect/references/` — 판정 기준 5종
   - `profiling.md` 6축 판정 규칙과 축별 반례
   - `routing.md` 판정 트리 + 레벨별 실행 절차 + 승격을 막는 반례
-  - `catalog.md` 에이전트 7종 도구 경계 + superpowers 12종 위임 매핑
+  - `catalog.md` 에이전트 7종 도구 경계 + 위임 스킬 12종(superpowers 11 + security-review) 매핑
   - `context-budget.md` 에이전트별 required / optional / forbidden
   - `linear-tracking.md` Linear 엔티티·상태 매핑과 기록 정책
 - `.claude/skills/harness-architect/schemas/harness-spec.yaml` — 실행 계약 스키마

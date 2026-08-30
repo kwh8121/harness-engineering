@@ -213,6 +213,33 @@ mutate h1-pipeline.yaml 'd["context"] = "none"'
 expect_error "E-TYPE" "context 가 문자열이면 거부한다"
 
 # --- 허용되지 않은 스킬 이름 ---
+# --- 숫자 필드에 문자열이 들어오면 죽지 않고 E-TYPE 으로 거부한다 (Codex final follow-up) ---
+# review_policy.max_loops·parallelism.max_workers 는 정수 비교(>)에 바로 쓰인다.
+# 타입을 먼저 확인하지 않으면 TypeError 로 처리되지 않은 예외가 난다.
+mutate h1-pipeline.yaml 'd["review_policy"]["max_loops"] = "nope"'
+out="$(python3 "$VALIDATOR" "$TMP/spec.yaml" 2>&1)"; rc=$?
+if [[ "$out" == *"Traceback"* ]]; then
+    echo "FAIL: max_loops: "nope" 이 처리되지 않은 예외(traceback)로 죽는다"
+    FAILURES=$((FAILURES + 1))
+elif [[ "$rc" -eq 0 || "$out" != *"E-TYPE"* ]]; then
+    echo "FAIL: max_loops: "nope" 이 죽지 않고 실패하지만 E-TYPE 근거가 없다 (rc=$rc)"
+    FAILURES=$((FAILURES + 1))
+else
+    echo "PASS: max_loops: "nope" 이 죽지 않고 E-TYPE 으로 깔끔하게 거부된다"
+fi
+
+mutate h1-pipeline.yaml 'd["parallelism"]["max_workers"] = "nope"'
+out="$(python3 "$VALIDATOR" "$TMP/spec.yaml" 2>&1)"; rc=$?
+if [[ "$out" == *"Traceback"* ]]; then
+    echo "FAIL: max_workers: "nope" 이 처리되지 않은 예외(traceback)로 죽는다"
+    FAILURES=$((FAILURES + 1))
+elif [[ "$rc" -eq 0 || "$out" != *"E-TYPE"* ]]; then
+    echo "FAIL: max_workers: "nope" 이 죽지 않고 실패하지만 E-TYPE 근거가 없다 (rc=$rc)"
+    FAILURES=$((FAILURES + 1))
+else
+    echo "PASS: max_workers: "nope" 이 죽지 않고 E-TYPE 으로 깔끔하게 거부된다"
+fi
+
 mutate h1-pipeline.yaml 'd["controller_skills"].append("superpowers:made-up-skill")'
 expect_error "E-SKILL-UNKNOWN" "존재하지 않는 controller_skills 항목을 거부한다"
 

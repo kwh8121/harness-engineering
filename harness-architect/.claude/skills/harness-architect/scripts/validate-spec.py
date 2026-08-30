@@ -65,8 +65,10 @@ ESCALATION_TARGETS = {
     "if_baseline_unknown": "baseline-tester",
     "if_implementation_error": "implementer",
 }
-# if_gate_fails_repeatedly 는 카탈로그 에이전트가 아니라 superpowers 스킬을 가리킨다
-# (예: superpowers:systematic-debugging). 정확한 스킬 이름을 강제하지 않고 형식만 본다.
+# if_gate_fails_repeatedly 는 카탈로그 에이전트가 아니라 superpowers 스킬을 가리킨다.
+# 게이트 반복 실패의 복구 경로는 superpowers:systematic-debugging 하나로 고정되어
+# 있으므로(routing.md·SKILL.md·catalog.md 가 전부 이 값으로 참조한다), check_escalation()
+# 에서 접두사가 아니라 정확한 값 일치로 검사한다.
 ESCALATION_KEYS = set(ESCALATION_TARGETS) | {"if_gate_fails_repeatedly"}
 
 LEVEL_PATTERN = {"H0": "single", "H1": "pipeline", "H2": "fanout", "H3": "dag"}
@@ -310,6 +312,12 @@ def check_policies(spec, r):
     loops = get(spec, "review_policy", "max_loops")
     if loops is None:
         r.error("E-REQUIRED", "review_policy.max_loops", "값이 없다")
+    elif not isinstance(loops, int) or isinstance(loops, bool):
+        # int 비교(>)에 바로 쓰이므로 타입부터 확인한다. bool 은 파이썬에서 int 의
+        # 서브클래스라 isinstance(True, int) 가 True 다 — YAML 의 true/false 가
+        # 숫자로 오인되지 않도록 따로 배제한다.
+        r.error("E-TYPE", "review_policy.max_loops",
+                f"정수여야 한다 (현재 {type(loops).__name__}: {loops!r})")
     else:
         limit = 3 if risk == "high" else 2
         if loops > limit:
@@ -323,6 +331,9 @@ def check_policies(spec, r):
     enabled = get(spec, "parallelism", "enabled")
     if workers is None:
         r.error("E-REQUIRED", "parallelism.max_workers", "값이 없다")
+    elif not isinstance(workers, int) or isinstance(workers, bool):
+        r.error("E-TYPE", "parallelism.max_workers",
+                f"정수여야 한다 (현재 {type(workers).__name__}: {workers!r})")
     elif workers > 3:
         r.error("E-PARALLEL", "parallelism.max_workers",
                 f"상한은 3 이다 (현재 {workers}). 4 이상은 병합 비용이 병렬 이득을 잠식한다")

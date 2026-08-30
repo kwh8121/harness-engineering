@@ -316,6 +316,17 @@ def main():
         prog["review_loops_used"] = 0
         prog["human_gate_passed"] = False
 
+    # artifact 등록은 --approved 보다 먼저 처리한다. --approved 는 지금 artifacts.spec 이
+    # 가리키는 파일을 그 자리에서 해시하므로, 같은 호출에 --artifact spec=... 이 함께 오면
+    # 등록이 먼저 반영돼야 spec_digest 가 채워진다. 순서가 바뀌면 결합 호출
+    # (--phase 3 --approved --agents ... --artifact spec=...)에서 지문이 조용히 비어
+    # 재개 시 spec 변조 감지가 무력화된다.
+    for item in args.artifact:
+        key, _, val = item.partition("=")
+        if key not in state["artifacts"]:
+            p.error(f"알 수 없는 artifact 키 '{key}' (가능: {sorted(state['artifacts'])})")
+        state["artifacts"][key] = val
+
     if args.approved:
         # 승인은 Phase 3 의 산물이다. 다른 Phase 에서 세우면 재개 시 이전 승인이
         # 실행 권한으로 되살아나는 경로가 열린다.
@@ -358,11 +369,6 @@ def main():
         prog["review_loops_used"] += 1
     if args.human_gate:
         prog["human_gate_passed"] = True
-    for item in args.artifact:
-        key, _, val = item.partition("=")
-        if key not in state["artifacts"]:
-            p.error(f"알 수 없는 artifact 키 '{key}' (가능: {sorted(state['artifacts'])})")
-        state["artifacts"][key] = val
 
     state["repo"] = repo_fingerprint()
     save(path, state)

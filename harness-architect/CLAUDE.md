@@ -22,6 +22,8 @@
   validate-spec / guard-readonly / checkpoint / resume-check (파이썬)
   - checkpoint / resume-check 는 `_workspace/harness/state.json` 으로 세션 간 재개를 지원한다.
     `checkpoint.py` 의 `CATALOG` 상수는 `validate-spec.py` · `references/catalog.md` 의 7종과 같아야 한다.
+    자동 재개 상한(`AUTO_MAX_PHASE = 2`)은 `resume-check.py` · `README.md`("중단하면 재개한다") ·
+    `CHECKLIST.md` B-1 · `SKILL.md` Phase −1 네 곳에 선언돼 있고 함께 바꿔야 한다.
 - `.claude/settings.json` — guard-readonly 를 PreToolUse 훅으로 등록
 - `.claude/agents/*.md` — 카탈로그 7종
 - `tests/` — 스크립트 bash 테스트 (`bash tests/run-all.sh`)

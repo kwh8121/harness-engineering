@@ -83,7 +83,7 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 
 - [ ] **스크립트 테스트** — `bash tests/run-all.sh`
       → 기대: 마지막 줄이 `run-all: 전체 통과 — PASS <n> / FAIL 0` 이고 exit 0
-      (2026-08-30 기준 `n = 252` — 재개 테스트 `test-checkpoint` · `test-resume-check` 포함)
+      (2026-08-30 기준 `n = 254` — `tests/test-checkpoint.sh` · `tests/test-resume-check.sh` 포함)
 
       > **판정 기준은 `FAIL 0` 과 exit code 이지 PASS 개수가 아니다.** 테스트를 추가하면
       > 이 수치는 늘어난다 — 예전에 `PASS 35` 로 못박아 둔 탓에 그 사이 실제 250 을 넘도록
@@ -178,7 +178,7 @@ A 는 매 작업마다, B 는 스킬을 고친 뒤에 돌린다.
 - [ ] **`.claude/settings.json` 이 훅을 등록하고 있다** — 없으면 가드는 걸리지 않는다
       (`python3 -c "import json;print(json.load(open('.claude/settings.json'))['hooks']['PreToolUse'])"`)
 
-- [ ] **세션 재개가 동작한다** — `tests/` 의 `test-checkpoint` · `test-resume-check`
+- [ ] **세션 재개가 동작한다** — `bash tests/test-checkpoint.sh` · `bash tests/test-resume-check.sh`
       (둘 다 `run-all.sh` 에 포함되지만 재개 로직을 고쳤다면 단독으로도 돌린다)
       → 확인: `checkpoint.py` 는 Phase 번호를 낮추는 호출을 거부하고(강등은 `--replan`),
       손상된 state 를 만나면 덮어쓰지 않고 exit 3. `resume-check.py` 는

@@ -119,6 +119,20 @@ case "$dg" in
     *) echo "FAIL: spec_digest 가 sha256 형식이 아니다 ($dg)"; FAILURES=$((FAILURES+1)) ;;
 esac
 
+# 9c. 결합 호출 — --approved 와 --artifact spec= 이 한 명령에 있어도 spec_digest 가 채워진다.
+#     SKILL.md Phase 3 이 문서화한 한 줄 호출이 이 형태다. --artifact 처리가 --approved
+#     해시보다 먼저 실행돼야 한다 (역순이면 지문이 조용히 비어 재개 시 변조 감지가 죽는다).
+cp "$TMP/good.json" "$STATE"          # artifacts.spec 을 다시 null 로 되돌린다
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved \
+    --agents implementer,reviewer --artifact spec=_workspace/harness/spec.yaml)
+assert_eq "_workspace/harness/spec.yaml" "$(jq_ 'd["artifacts"]["spec"]')" \
+    "결합 호출에서 artifacts.spec 이 등록된다"
+dg="$(jq_ 'd["task"]["spec_digest"]')"
+case "$dg" in
+    sha256:*) echo "PASS: 결합 호출(--approved + --artifact spec=)에서도 spec_digest 가 채워진다" ;;
+    *) echo "FAIL: 결합 호출 spec_digest 가 sha256 형식이 아니다 ($dg)"; FAILURES=$((FAILURES+1)) ;;
+esac
+
 # 10. 카탈로그 밖 에이전트를 거부한다
 python3 "$CP" --phase 3 --approved --agents implementer,ghost-agent 2>/dev/null
 assert_exit_code 2 "$?" "카탈로그 밖 에이전트를 거부한다"

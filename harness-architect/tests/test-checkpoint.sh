@@ -136,10 +136,19 @@ cp "$TMP/good.json" "$STATE"
 python3 "$CP" --approved --agents implementer,reviewer 2>/dev/null
 assert_exit_code 2 "$?" "--approved 가 --phase 3 없이 오면 거부한다"
 
-python3 "$CP" --phase 3 --approved --agents implementer,reviewer
+mkdir -p "$TMP/repo/_workspace/harness"
+printf 'harness_version: 1\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer \
+    --artifact spec=_workspace/harness/spec.yaml)
 assert_eq "True" "$(jq_ 'd["approved"]')" "phase 3 과 함께면 승인을 세운다"
 assert_eq "implementer,reviewer" "$(jq_ '",".join(d["progress"]["agents_pending"])')" \
     "agents_pending 을 초기화한다"
+
+# 9d. --approved 는 artifacts.spec 이 없으면 거부한다 (I-4: spec 변조 감지의 유일한 경로)
+cp "$TMP/good.json" "$STATE"
+python3 "$CP" --phase 3 --approved --agents implementer,reviewer 2>/dev/null
+assert_exit_code 2 "$?" "artifacts.spec 없이 --approved 를 거부한다"
+assert_eq "False" "$(jq_ 'd["approved"]')" "거부됐으므로 승인이 서지 않는다"
 
 # 9b. --approved 는 artifacts.spec 파일을 직접 읽어 해시한다 (호출자가 해시를 넘기지 않는다)
 mkdir -p "$TMP/repo/_workspace/harness"
@@ -214,6 +223,10 @@ assert_eq "False" "$(jq_ 'd["progress"]["human_gate_passed"]')" "Human Gate 를 
 assert_eq "None"  "$(jq_ 'd["task"]["spec_digest"]')" "spec 지문을 초기화한다"
 assert_eq "$tid"  "$(jq_ 'd["task"]["id"]')" "task.id 는 유지한다 (같은 작업이다)"
 
+# 14b-2. --replan 은 --level 없이 오면 거부한다 (M-3: 없으면 브리핑이 옛 레벨을 말한다)
+python3 "$CP" --replan 2>/dev/null; assert_exit_code 2 "$?" "--level 없는 --replan 을 거부한다"
+assert_eq "H1" "$(jq_ 'd["level"]')" "거부됐으므로 레벨이 그대로다"
+
 # 14c. --agents 는 --phase 3 --approved 와 함께여야 하고 중복을 거부한다
 python3 "$CP" --agents implementer,reviewer 2>/dev/null
 assert_exit_code 2 "$?" "--agents 단독 사용을 거부한다"
@@ -241,5 +254,29 @@ json.dump(d,open(sys.argv[1],'w'))" "$STATE" "$tid2"
 python3 "$CP" --archive
 assert_eq "2" "$(find "$HARNESS_WORKSPACE" -name "state.done-$tid2*.json" | wc -l)" \
     "파일명이 충돌하면 기존 기록을 덮지 않는다"
+
+# 17. --discard — 어느 phase 에서든 state 를 폐기 보존하고 지운다 (I-6: exit 11 의 '폐기' 경로)
+cp "$TMP/good.json" "$STATE"
+python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1])); d['task']['id']='disc1'; d['phase']='4'
+json.dump(d,open(sys.argv[1],'w'))" "$STATE"
+python3 "$CP" --discard; assert_exit_code 0 "$?" "phase 4 에서도 --discard 는 성공한다"
+assert_file_exists "$HARNESS_WORKSPACE/state.discarded-disc1.json" "폐기한 state 를 id 로 보존한다"
+if [[ -f "$STATE" ]]; then echo "FAIL: --discard 후에도 state.json 이 남아 있다"; FAILURES=$((FAILURES+1))
+else echo "PASS: --discard 후 state.json 은 제거된다"; fi
+
+# 17b. 폐기 파일명 충돌 시 기존 기록을 덮지 않는다 (--archive 와 같은 규칙)
+cp "$TMP/good.json" "$STATE"
+python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1])); d['task']['id']='disc1'; d['phase']='2'
+json.dump(d,open(sys.argv[1],'w'))" "$STATE"
+python3 "$CP" --discard
+assert_eq "2" "$(find "$HARNESS_WORKSPACE" -name 'state.discarded-disc1*.json' | wc -l)" \
+    "폐기 파일명이 충돌하면 기존 기록을 덮지 않는다"
+
+# 17c. 폐기할 state 가 없으면 거부한다
+python3 "$CP" --discard 2>/dev/null; assert_exit_code 2 "$?" "state 가 없으면 --discard 를 거부한다"
 
 report_and_exit

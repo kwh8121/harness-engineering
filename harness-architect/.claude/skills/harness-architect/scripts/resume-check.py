@@ -27,9 +27,14 @@ import os
 import subprocess
 import sys
 
+# checkpoint 를 import 하면 scripts/__pycache__/ 가 생기는데, 이 디렉터리는 배포
+# 저장소로 복사되는 세 경로 안에 있다 — 이식 시 남의 인터프리터 바이트코드가 딸려
+# 간다. 무시(.gitignore)보다 애초에 안 만드는 게 낫다.
+sys.dont_write_bytecode = True
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from checkpoint import (                                     # noqa: E402
-    repo_fingerprint, resolve, spec_digest, SCHEMA_VERSION,
+    repo_fingerprint, resolve, spec_digest, validate_state, SCHEMA_VERSION,
 )
 
 EXIT_NONE, EXIT_AUTO, EXIT_HUMAN, EXIT_DONE = 0, 10, 11, 12
@@ -47,55 +52,6 @@ def workspace():
         print("resume-check: 워크스페이스 경로를 구하지 못했습니다", file=sys.stderr)
         sys.exit(EXIT_HUMAN)
     return out.stdout.strip()
-
-
-def validate_state(state):
-    """state 내부 구조를 검사한다. 최상위가 매핑이고 schema_version 이 맞아도 내부
-    타입이 깨져 있으면 drift()·render() 가 처리되지 않은 예외로 죽는다 — 예를 들어
-    {"repo": "broken"} 은 recorded.get() 에서 AttributeError 를 낸다. 설계가 약속한
-    '손상된 state 는 예외 없이 exit 11'을 지키려면 여기서 먼저 걸러야 한다."""
-    errs = []
-    for key in ("task", "repo", "artifacts", "progress"):
-        if not isinstance(state.get(key, {}), dict):
-            errs.append(f"{key} 가 매핑이 아닙니다 ({type(state.get(key)).__name__})")
-    if not isinstance(state.get("phase", ""), str):
-        errs.append("phase 가 문자열이 아닙니다")
-    if not isinstance(state.get("approved", False), bool):
-        errs.append("approved 가 bool 이 아닙니다")
-
-    # 컨테이너 타입뿐 아니라 그 안의 원소·값 타입까지 본다. render()·drift() 는
-    # 이 값들을 join 하거나 경로로 넘기므로, str 이어야 할 자리에 int 가 들어오면
-    # 검증을 통과하고도 처리되지 않은 TypeError 로 죽는다.
-    task = state.get("task")
-    if isinstance(task, dict):
-        for key in ("id", "goal"):
-            if task.get(key) is not None and not isinstance(task.get(key), str):
-                errs.append(f"task.{key} 가 문자열이 아닙니다")
-
-    art = state.get("artifacts")
-    if isinstance(art, dict):
-        for key, val in art.items():
-            if val is not None and not isinstance(val, str):
-                errs.append(f"artifacts.{key} 가 문자열이 아닙니다")
-
-    prog = state.get("progress")
-    if isinstance(prog, dict):
-        for key in ("agents_done", "agents_pending", "gates"):
-            if not isinstance(prog.get(key, []), list):
-                errs.append(f"progress.{key} 가 리스트가 아닙니다")
-        for key in ("agents_done", "agents_pending"):
-            for i, a in enumerate(prog.get(key) or []):
-                if not isinstance(a, str):
-                    errs.append(f"progress.{key}[{i}] 가 문자열이 아닙니다")
-        for i, g in enumerate(prog.get("gates") or []):
-            if not isinstance(g, dict):
-                errs.append(f"progress.gates[{i}] 가 매핑이 아닙니다")
-        for key in ("review_loops_used",):
-            if not isinstance(prog.get(key, 0), int):
-                errs.append(f"progress.{key} 가 정수가 아닙니다")
-        if not isinstance(prog.get("human_gate_passed", False), bool):
-            errs.append("progress.human_gate_passed 가 bool 이 아닙니다")
-    return errs
 
 
 def drift(recorded, current, state):

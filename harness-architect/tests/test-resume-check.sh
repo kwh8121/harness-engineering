@@ -30,7 +30,10 @@ assert_eq "0" "$(run)" "state 가 없으면 exit 0 (새 작업)"
 assert_eq "10" "$(run)" "Phase 2 + 불일치 없음이면 10"
 
 # 3. Phase 3 은 승인 여부와 무관하게 사람 판단
-(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer)
+mkdir -p "$TMP/repo/_workspace/harness"
+printf 'harness_version: 1\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer \
+    --artifact spec=_workspace/harness/spec.yaml)
 assert_eq "11" "$(run)" "Phase 3 + approved 는 자동 재개하지 않는다 (승인 부활 금지)"
 # exit 11 만으로는 오류 경로와 구분되지 않는다 — 정상 판정 브리핑이 나왔는지 본문으로 확인한다.
 capture
@@ -112,7 +115,10 @@ rm -rf "$TMP/repo/_workspace"
 rm -f "$STATE"
 (cd "$TMP/repo" && python3 "$CP" --phase 2 --level H2 --goal "업로드 API 를 S3 로 이관" \
     --next "implementer dispatch — 단위 2/3")
-(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer)
+mkdir -p "$TMP/repo/_workspace/harness"
+printf 'harness_version: 1\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer \
+    --artifact spec=_workspace/harness/spec.yaml)
 (cd "$TMP/repo" && python3 "$CP" --agent-done implementer --gate fast:0)
 brief="$(cd "$TMP/repo" && python3 "$CHECK")"
 assert_contains "$brief" "[재개]"   "재개 헤더를 낸다"

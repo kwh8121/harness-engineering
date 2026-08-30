@@ -191,6 +191,59 @@ def blank_state():
     }
 
 
+def validate_state(state):
+    """state 내부 구조를 검사해 오류 목록을 낸다 — "무엇이 손상인가"의 **단일 정의**다.
+
+    checkpoint.load() 와 resume-check 둘 다 이 함수를 부른다. 최상위가 매핑이고
+    schema_version 이 맞아도 내부 타입이 깨져 있으면 이후 코드가 처리되지 않은
+    예외로 죽는다 — 예를 들어 {"repo": "broken"} 은 recorded.get() 에서
+    AttributeError 를, progress.gates:[1] 은 g.get() 에서 AttributeError 를 낸다.
+    설계가 약속한 '손상된 state 는 예외 없이 fail-closed' 를 지키려면 여기서 먼저 건다.
+
+    컨테이너 타입뿐 아니라 그 안의 원소·값 타입까지 본다. render()·drift() 는 이
+    값들을 join 하거나 경로로 넘기므로, str 이어야 할 자리에 int 가 들어오면 검증을
+    통과하고도 처리되지 않은 TypeError 로 죽는다."""
+    errs = []
+    for key in ("task", "repo", "artifacts", "progress"):
+        if not isinstance(state.get(key, {}), dict):
+            errs.append(f"{key} 가 매핑이 아닙니다 ({type(state.get(key)).__name__})")
+    if not isinstance(state.get("phase", ""), str):
+        errs.append("phase 가 문자열이 아닙니다")
+    if not isinstance(state.get("approved", False), bool):
+        errs.append("approved 가 bool 이 아닙니다")
+
+    task = state.get("task")
+    if isinstance(task, dict):
+        for key in ("id", "goal"):
+            if task.get(key) is not None and not isinstance(task.get(key), str):
+                errs.append(f"task.{key} 가 문자열이 아닙니다")
+
+    art = state.get("artifacts")
+    if isinstance(art, dict):
+        for key, val in art.items():
+            if val is not None and not isinstance(val, str):
+                errs.append(f"artifacts.{key} 가 문자열이 아닙니다")
+
+    prog = state.get("progress")
+    if isinstance(prog, dict):
+        for key in ("agents_done", "agents_pending", "gates"):
+            if not isinstance(prog.get(key, []), list):
+                errs.append(f"progress.{key} 가 리스트가 아닙니다")
+        for key in ("agents_done", "agents_pending"):
+            for i, a in enumerate(prog.get(key) or []):
+                if not isinstance(a, str):
+                    errs.append(f"progress.{key}[{i}] 가 문자열이 아닙니다")
+        for i, g in enumerate(prog.get("gates") or []):
+            if not isinstance(g, dict):
+                errs.append(f"progress.gates[{i}] 가 매핑이 아닙니다")
+        for key in ("review_loops_used",):
+            if not isinstance(prog.get(key, 0), int):
+                errs.append(f"progress.{key} 가 정수가 아닙니다")
+        if not isinstance(prog.get("human_gate_passed", False), bool):
+            errs.append("progress.human_gate_passed 가 bool 이 아닙니다")
+    return errs
+
+
 def load(path):
     """(state, error) 를 낸다. 파일이 없을 때만 새 상태를 만든다."""
     if not os.path.exists(path):
@@ -213,15 +266,12 @@ def load(path):
     # 손으로 고친 부분 state 도 traceback 을 내지 않게 한다. 파싱은 됐지만 중첩
     # 구획이 빠졌거나 타입이 틀린 state 는 fail-closed(exit 3)로 다뤄야지, 나중에
     # state["task"]["id"] 나 prog = state["progress"] 에서 KeyError·TypeError 로
-    # 죽으면 안 된다(자동 호출부는 exit 3 만 본다). schema_version 은 맞지만
-    # 구조가 깨진 경우는 미지원 schema 와 같은 등급으로 거부한다.
-    for key in ("task", "repo", "artifacts", "progress"):
-        if not isinstance(data.get(key, {}), dict):
-            return None, f"{key} 가 매핑이 아닙니다 ({type(data.get(key)).__name__})"
-    prog_in = data.get("progress") or {}
-    for key in ("agents_done", "agents_pending", "gates"):
-        if not isinstance(prog_in.get(key, []), list):
-            return None, f"progress.{key} 가 리스트가 아닙니다"
+    # 죽으면 안 된다(자동 호출부는 exit 3 만 본다). "무엇이 손상인가"의 정의는
+    # validate_state() 하나이며 resume-check 와 공유한다 — 쓰기 측이 읽기 측보다
+    # 약하면 안 된다(쓰기 측이 증거 보존의 책임을 진다).
+    errs = validate_state(data)
+    if errs:
+        return None, "state 내부 구조가 손상됐습니다: " + "; ".join(errs)
 
     base = blank_state()
     base.update(data)
@@ -267,12 +317,30 @@ def build_parser():
     p.add_argument("--human-gate-passed", action="store_true", dest="human_gate")
     p.add_argument("--artifact", action="append", default=[], help="key=path")
     p.add_argument("--archive", action="store_true")
+    p.add_argument("--discard", action="store_true",
+                   help="현재 state 를 폐기한다 — state.discarded-<id>.json 으로 "
+                        "보존하고 state.json 을 제거한다 (어느 phase 에서든 가능)")
     p.add_argument("--replan", action="store_true",
-                   help="계약을 다시 만든다 — 승인·진행을 초기화하고 phase 3 으로 되돌린다")
+                   help="계약을 다시 만든다 — 승인·진행을 초기화하고 phase 3 으로 되돌린다 "
+                        "(--level 필수)")
     return p
 
 
 def main():
+    """무조건 백스톱 — resume-check.py 의 방어를 그대로 반영한다. validate_state() 가
+    놓친 형태든 예기치 못한 버그든, checkpoint 는 손상 판정(exit 3)으로 실패하지
+    traceback + exit 1 로 죽지 않는다 — 자동 호출부(run-gates·init-workspace)는
+    exit 3 만 보고 판정하기 때문이다. argparse 의 SystemExit(exit 2)은
+    BaseException 하위라 여기에 걸리지 않는다."""
+    try:
+        return _main()
+    except Exception as e:                     # noqa: BLE001 — 계약이 무조건이므로 방어도 무조건이다
+        print(f"checkpoint: 예기치 못한 오류 — state 를 손상으로 간주합니다: {e}",
+              file=sys.stderr)
+        return EXIT_CORRUPT
+
+
+def _main():
     p = build_parser()
     args = p.parse_args()
 
@@ -301,6 +369,20 @@ def main():
         os.replace(path, target)
         return EXIT_OK
 
+    if args.discard:
+        # 재판정·폐기의 '폐기' 경로. --archive 와 달리 phase 제한이 없다 —
+        # exit 11 브리핑을 본 사용자가 어느 단계에서든 그만두기로 하면 증거를
+        # 남기고 지운다. 파일명 충돌 처리는 --archive 와 같다(기존 기록 불가침).
+        if not os.path.exists(path):
+            p.error("폐기할 state 가 없습니다")
+        tid = state["task"]["id"] or "unknown"
+        base = os.path.join(os.path.dirname(path), f"state.discarded-{tid}")
+        target, n = f"{base}.json", 1
+        while os.path.exists(target):
+            target, n = f"{base}-{n}.json", n + 1
+        os.replace(path, target)
+        return EXIT_OK
+
     if args.phase is not None:
         # 역행은 --replan 으로만 한다. 맨 --phase 로 되돌리면 이전 계약의 승인과
         # 진행이 그대로 남는다 — 무엇을 초기화할지 아무도 정하지 않은 상태가 된다.
@@ -325,6 +407,10 @@ def main():
     if args.replan:
         if args.phase is not None:
             p.error("--replan 은 --phase 와 함께 쓰지 않습니다 (항상 phase 3 으로 갑니다)")
+        if args.level is None:
+            p.error("--replan 에는 --level <새 레벨> 이 필요합니다 — 재판정의 목적이 "
+                    "레벨 변경(예: H2→H1 강등)이다. 안 주면 이전 레벨이 그대로 남아 "
+                    "브리핑이 거짓을 말한다")
         state["approved"] = False
         state["phase"] = "3"
         state["task"]["spec_digest"] = None
@@ -350,6 +436,13 @@ def main():
         # 실행 권한으로 되살아나는 경로가 열린다.
         if args.phase != "3":
             p.error("--approved 는 --phase 3 과 함께 써야 합니다")
+        if not state["artifacts"].get("spec"):
+            # spec 지문이 없으면 spec_digest(None) → None → 재개 시 drift() 가 spec
+            # 검사를 통째로 건너뛴다. _workspace/ 는 tree_digest 에서 제외되므로
+            # 이 지문이 승인된 계약의 변조를 잡는 **유일한** 경로다. 조용히 비우지 않는다.
+            p.error("--approved 에는 artifacts.spec 이 있어야 합니다 — "
+                    "--artifact spec=<경로> 를 함께 주십시오 "
+                    "(없으면 재개 시 spec 변조 감지가 꺼진다)")
         state["approved"] = True
         # spec 지문은 스킬이 아니라 여기서 계산한다 — 넘기게 하면 잊거나 틀린다.
         # _workspace/ 는 tree_digest 에서 제외되므로 이 지문이 없으면 승인된 계약이

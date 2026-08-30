@@ -351,13 +351,15 @@ def check_escalation(spec, agent_ids, r):
 
     # if_gate_fails_repeatedly 는 레벨·에이전트 구성과 무관하게 항상 필요하다 —
     # H0 도 게이트가 반복 실패할 수 있고, 그때 systematic-debugging 으로 넘어가야 한다.
+    # 게이트 반복 실패의 복구 경로는 정확히 하나뿐이다. "superpowers:" 접두사만 보면
+    # superpowers:not-a-real-skill 같은 존재하지 않는 이름도 통과해 버린다 —
+    # routing.md·SKILL.md·catalog.md 가 전부 이 값으로 고정해 참조하므로 여기서도
+    # 정확한 이름을 강제한다.
     gate_target = esc.get("if_gate_fails_repeatedly")
-    if not str(gate_target or "").strip():
-        r.error("E-ESCALATION", "escalation.if_gate_fails_repeatedly", "값이 없다")
-    elif not str(gate_target).startswith("superpowers:"):
+    if gate_target != "superpowers:systematic-debugging":
         r.error("E-ESCALATION", "escalation.if_gate_fails_repeatedly",
-                f"'{gate_target}' 는 카탈로그 에이전트가 아니라 superpowers 스킬을 "
-                "가리켜야 한다 (예: superpowers:systematic-debugging)")
+                f"'{gate_target}' 가 아니라 정확히 'superpowers:systematic-debugging' "
+                "이어야 한다 (게이트 반복 실패의 복구 경로는 이 스킬 하나로 고정되어 있다)")
 
     # 나머지 세 대상은 **그 실패 원인을 낼 수 있는 에이전트가 이 spec 에 실제로 배정된
     # 경우에만** 요구한다. H0 은 dependency-mapper·baseline-tester·implementer 를

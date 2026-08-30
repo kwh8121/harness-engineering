@@ -55,7 +55,7 @@ Task ──▶ harness-architect Skill ──▶ HarnessSpec ──┬─▶ Age
 - `.claude/settings.json` — 위 훅을 `PreToolUse` 로 등록한다
 - `.claude/agents/` × 7 — implementer / reviewer / dependency-mapper / baseline-tester /
   integrator / orchestrator / deployment-agent
-- `tests/` — 스크립트 bash 테스트 하네스 (35 assertion)
+- `tests/` — 스크립트 bash 테스트 하네스 (130 assertion)
 - `fixtures/` — 스택 감지용 가짜 프로젝트 5종
 - `evals/` — 라우팅 판정 eval (H0 / H1 / H3 기대값과 실행 기록)
 - `MIGRATION.md` — 다른 저장소로 이식하는 절차 (사전 요건·복사·검증·흔한 실패)
@@ -160,7 +160,7 @@ Human Gate 누락, `full_repository_dump` 금지 누락, 루프·워커 상한 �
 ## 실행
 
 ```bash
-# 1. 스크립트 테스트 (35 assertion)
+# 1. 스크립트 테스트 (130 assertion)
 cd harness-architect && bash tests/run-all.sh
 
 # 2. 스택 감지 확인
@@ -172,7 +172,7 @@ Phase 0~5 가 진행된다. **Phase 3 에서 반드시 승인을 요청하고 �
 
 ## 결과 요약
 
-- 스크립트 테스트 검증 항목 116개 전부 통과 — 런북의 코멘트 예시가 실제 스크립트 출력과 일치하는지도 테스트가 대조한다
+- 스크립트 테스트 검증 항목 130개 전부 통과 (`detect-stack` 30 + `run-gates` 13 + `validate-spec` 42 + `guard-readonly` 20 + `gate-summary` 11 + `dry-run-doc` 14) — 런북의 코멘트 예시가 실제 스크립트 출력과 일치하는지도 테스트가 대조한다
 - 라우팅 판정 eval 3건 전부 기대값 일치 (H0 / H1 / H3): `evals/` 참고
 - SKILL.md 자체 심사: 레포의 `reviewing-skill-md` 체크리스트(구조·발견성·크기·안티패턴) 전 항목 pass
   — 이는 **문서 품질** 심사이며, 실행 검증 상태는 아래와 `CHECKLIST.md` B-3 을 본다

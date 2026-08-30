@@ -179,6 +179,15 @@ expect_error "E-ESCALATION" "if_baseline_unknown 이 baseline-tester 가 아니�
 mutate h3-orchestrator.yaml 'del d["escalation"]["if_gate_fails_repeatedly"]'
 expect_error "E-ESCALATION" "if_gate_fails_repeatedly 누락을 거부한다"
 
+# --- 존재하지 않는 재라우팅 스킬 (Codex follow-up review) ---
+# "superpowers:" 접두사만 보면 superpowers:not-a-real-skill 도 통과해버린다.
+# 반복 게이트 실패의 복구 경로는 정확히 superpowers:systematic-debugging 하나뿐이다.
+mutate h3-orchestrator.yaml 'd["escalation"]["if_gate_fails_repeatedly"] = "superpowers:not-a-real-skill"'
+expect_error "E-ESCALATION" "가짜 superpowers:* 스킬(존재하지 않는 이름)을 거부한다"
+
+mutate h3-orchestrator.yaml 'd["escalation"]["if_gate_fails_repeatedly"] = "systematic-debugging"'
+expect_error "E-ESCALATION" "superpowers: 접두사 없이 쓴 값을 거부한다"
+
 # --- nested 섹션이 매핑이 아니다: verification 이 리스트 (이전엔 처리되지 않은 예외로 죽었다) ---
 mutate h1-pipeline.yaml 'd["verification"] = []'
 out="$(python3 "$VALIDATOR" "$TMP/spec.yaml" 2>&1)"; rc=$?

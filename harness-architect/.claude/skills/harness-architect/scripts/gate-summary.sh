@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # gate-summary.sh — 게이트 로그를 Linear 코멘트용 Markdown 요약으로 렌더링한다.
 #
-# 사용법:  gate-summary.sh <tier> [로그_디렉터리]   (기본값: _workspace/harness/gates)
+# 사용법:  gate-summary.sh <tier> [로그_디렉터리]
+#          (기본값: <메인 워크트리 루트>/_workspace/harness/gates — harness-paths.sh 참고)
 # 출력:    stdout 에 Markdown. 그대로 save_comment 의 body 로 쓴다.
 # 종료코드: 0 = 렌더링 성공 / 1 = 해당 tier 로그가 없다
 #
@@ -11,7 +12,10 @@
 set -uo pipefail
 
 TIER="${1:-}"
-LOG_DIR="${2:-_workspace/harness/gates}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=harness-paths.sh
+. "$HERE/harness-paths.sh"
+LOG_DIR="${2:-$(harness_workspace)/gates}"
 
 if [[ -z "$TIER" ]]; then
     echo "gate-summary: tier 를 지정하십시오 (fast|feature|final)" >&2

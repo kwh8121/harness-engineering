@@ -42,6 +42,8 @@ agents:
 controller_skills:
   - superpowers:requesting-code-review      # reviewer 를 부르는 쪽이 쓴다
   - superpowers:verification-before-completion
+  - superpowers:finishing-a-development-branch  # H1 은 worktree 를 만들지 않지만,
+                                                # 브랜치에서 작업하므로 통합 방식은 정해야 한다
 
 agent_skills:
   implementer: [superpowers:test-driven-development]

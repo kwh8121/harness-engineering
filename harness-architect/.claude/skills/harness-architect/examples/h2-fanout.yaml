@@ -55,6 +55,7 @@ controller_skills:                            # 전부 Agent 도구가 필요하
   - superpowers:subagent-driven-development   # 워커 태스크 루프
   - superpowers:requesting-code-review
   - superpowers:verification-before-completion
+  - superpowers:finishing-a-development-branch  # 격리를 만들었으면 해제도 쌍으로 선언한다
 
 agent_skills:
   implementer: [superpowers:test-driven-development]

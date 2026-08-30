@@ -34,6 +34,14 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 
 - exit 0 → `_workspace/harness/gates.tsv` 가 이번 작업의 검증 명령 전부다.
 - exit 3 → 스택 미감지. **명령을 지어내지 말고** 사용자에게 물어 `tier<TAB>command` 로 기록한다.
+- exit 4 → superpowers 미설치. **여기서 멈춘다.** 하네스는 H0 조차
+  `verification-before-completion` 에 의존하므로 진행할 수 없다.
+  1. 사용자에게 설치 여부를 묻는다.
+  2. 승인하면 `/plugin install superpowers@claude-plugins-official` 을 **제시한다.**
+     슬래시 명령은 스킬이 대신 실행할 수 없다 — 사용자가 입력한다. 재시작은 필요 없다.
+  3. 설치 확인 후 **Phase 1 을 처음부터 다시 실행한다** (골격이 아직 없다).
+  4. 거부하면 하네스를 중단한다. **미설치 상태로 Phase 2 로 넘어가지 않는다** —
+     검증 절차 없이 완료를 선언하게 된다.
 
 ## Phase 2 — 프로파일링과 라우팅
 
@@ -49,7 +57,7 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 2. `Bash: python3 .claude/skills/harness-architect/scripts/validate-spec.py _workspace/harness/spec.yaml --gates _workspace/harness/gates.tsv`
    - exit 1 → **계약 위반이다. 승인을 요청하지 말고 spec 을 고쳐 재검증한다.**
    - exit 2 → 검증기를 돌릴 수 없다(PyYAML 부재 등). 그 사실을 사용자에게 알리고
-     `CHECKLIST.md` A-2 를 손으로 확인한다.
+     README 의 '승인 게이트 확인' 항목을 손으로 확인한다.
 3. `tracking.provider: linear` 면 추적 대상을 만든다 (`references/linear-tracking.md`).
    H1 은 Issue 1건, H2/H3 는 Project + 단위별 Issue. 상태는 `Triage`(= 승인 대기),
    description 에 spec 요약. H3 은 DAG 의 `depends_on` 을 `blockedBy` 로 건다.
@@ -67,7 +75,8 @@ allowed-tools: Agent, Bash, Read, Write, Edit, Grep, Glob, Skill
 - **H1** — (uncertainty≥medium 이면 dependency-mapper ‖ baseline-tester 동시 dispatch 선행)
   → implementer → 게이트 → reviewer → 루프 ≤ `max_loops`.
 - **H2** — worktree 격리 → 조사 2인 동시 dispatch → `superpowers:writing-plans`
-  → `superpowers:subagent-driven-development`(워커 순차) → integrator → reviewer.
+  → `superpowers:subagent-driven-development`(워커 순차) → integrator → reviewer
+  → **작업 공간 정리**(Phase 5).
 - **H3** — H2 + orchestrator 가 DAG 관리와 실패 원인별 재라우팅.
 
 추적 중이면 각 단위의 Linear 상태를 전환한다: 착수 `In Progress` → 게이트 통과 `In Review`
@@ -85,7 +94,13 @@ BLOCKER 는 sub-issue 로 승격한다.
    `tracking.human_gate_approval` 이 `linear`/`both` 면 사용자가 Linear 에서 `Todo` 로 바꿀 때까지
    기다린다 — **무한 대기하지 않는다.** 상한에 닿으면 알리고 멈춘다.
    완료되면 상태를 `Done` 으로 올리고 최종 게이트 결과를 코멘트로 남긴다.
-4. 브랜치 마무리가 필요하면 **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch.
+4. **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch.
+   **Phase 4 에서 worktree 를 만들었으면(H2·H3) 이 단계는 필수다** — 격리를 절차에 넣었으면
+   해제도 절차에 있어야 한다. H0·H1 은 브랜치에서 작업한 경우에만 호출한다.
+   정리 여부는 그 스킬의 통합 선택이 정한다 (로컬 머지 → 제거 / PR·유지 → 보존).
+   **Linear 상태는 정리를 트리거하지 않는다** — 상태로는 정리를 억제하기만 한다.
+   `In Progress` 면 경고하고 멈추고, `Canceled` 면 폐기 메뉴를 제시만 한다.
+   근거와 전체 규칙은 `references/routing.md` 의 "작업 공간 정리".
 
 ## 불변 규칙
 
@@ -97,7 +112,8 @@ BLOCKER 는 sub-issue 로 승격한다.
 - **컨텍스트는 경로로 전달한다**: 보고서 본문·세션 히스토리를 dispatch 프롬프트에 붙여넣지 않는다. dispatch 시 `model` 을 항상 명시한다 (생략하면 세션의 가장 비싼 모델을 상속).
 - **구현 워커 동시 dispatch 금지**: `max_workers: 3` 은 병합 단위 수이지 동시 실행 수가 아니다. 동시 dispatch 는 파일을 쓰지 않는 조사 에이전트에만 허용한다.
 - **리뷰 루프 상한**: `max_loops`(기본 2, risk: high 만 3) 초과 시 고치지 말고 사람에게 넘긴다. MINOR·NIT 는 루프를 막지 않는다.
-- **자동 커밋 금지 / workspace 보존**: `git commit` 을 호출하지 않고, 종료 후에도 `_workspace/` 를 삭제하지 않는다.
+- **자동 커밋 금지 / workspace 보존**: `git commit` 을 호출하지 않고, 종료 후에도 `_workspace/` 를 삭제하지 않는다. `_workspace/` 는 `scripts/harness-paths.sh` 가 메인 워크트리 루트에 고정하므로 worktree 를 제거해도 산출물이 남는다.
+- **격리와 해제는 쌍이다**: worktree 를 만든 하네스는 반드시 정리 단계까지 절차에 포함한다. 정리 시점은 **통합 결과**가 정하고 Linear 상태가 정하지 않는다 — `Canceled` 는 강등을 포함하고 `Done` 은 통합보다 먼저 찍히기 때문이다.
 - **검증되지 않은 spec 으로 실행하지 않는다**: Phase 3 의 `validate-spec.py` 가 exit 1 이면 승인을 요청하지 않는다.
 - **Linear 쓰기는 컨트롤러만 한다**: 워커와 orchestrator 는 Linear 를 건드리지 않는다. 상태 토큰만 반환하고 컨트롤러가 번역한다. 추적 실패는 하네스를 멈추지 않는다 — 관측 수단이지 실행 경로가 아니다.
 - **H0 은 추적하지 않는다**: 단일 파일·저위험 변경까지 이슈로 만들면 백로그가 오탈자 수정으로 찬다.

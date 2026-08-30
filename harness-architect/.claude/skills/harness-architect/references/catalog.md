@@ -49,7 +49,7 @@ dependency-mapper 는 아무 데도 쓰지 못한다.
 `implementer`·`integrator` 는 소스를 고치는 것이 일이라 가드 대상이 아니고,
 `baseline-tester` 는 특성화 테스트를 레포의 테스트 디렉터리에 써야 해서 제외했다.
 
-설치법은 `../../../README.md` 의 "훅 설치" 절 참고. 훅을 걸지 않아도 스킬은 동작하지만,
+설치법은 `../../../../README.md` 의 "훅 설치" 절 참고. 훅을 걸지 않아도 스킬은 동작하지만,
 그때 이 표의 "훅이 차단" 행은 전부 "프롬프트 준수에만 의존" 으로 내려간다.
 | `deployment-agent` | sonnet | Read, Bash, Write | 배포·헬스체크·롤백 준비 | Human Gate 없이는 실행하지 않는다 |
 
@@ -80,9 +80,9 @@ dependency-mapper 는 아무 데도 쓰지 못한다.
 | 계획을 서브에이전트로 실행 | `superpowers:subagent-driven-development` | controller | H2, H3 |
 | 독립 조사 2건 이상을 동시에 | `superpowers:dispatching-parallel-agents` | controller | 전 레벨 |
 | reviewer 호출 방법·심사 기준 | `superpowers:requesting-code-review` | controller | H1–H3 |
-| 작업 공간 격리 | `superpowers:using-git-worktrees` | controller | H2, H3 |
+| 작업 공간 격리 | `superpowers:using-git-worktrees` | controller | H2, H3 (**필수**) |
 | 완료 선언 직전 | `superpowers:verification-before-completion` | controller | **전 레벨 필수** |
-| 브랜치 마무리 (머지·PR·유지) | `superpowers:finishing-a-development-branch` | controller | H1–H3 |
+| 브랜치 마무리 + 작업 공간 정리 | `superpowers:finishing-a-development-branch` | controller | H2·H3 **필수** / H1 은 브랜치 작업 시 |
 | implementer 의 기본 작업 방식 | `superpowers:test-driven-development` | agent (implementer) | H1–H3 |
 | 리뷰 피드백 수신·반영 | `superpowers:receiving-code-review` | agent (implementer) | H1–H3 |
 | 게이트가 반복 실패, 원인 불명 | `superpowers:systematic-debugging` | 양쪽 | 전 레벨 |

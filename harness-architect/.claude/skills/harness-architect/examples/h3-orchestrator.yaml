@@ -66,6 +66,7 @@ controller_skills:                            # orchestrator 가 소유한다 (A
   - superpowers:subagent-driven-development
   - superpowers:requesting-code-review
   - superpowers:verification-before-completion
+  - superpowers:finishing-a-development-branch  # 정리는 Human Gate 통과 뒤에 한다
 
 agent_skills:
   implementer: [superpowers:test-driven-development]

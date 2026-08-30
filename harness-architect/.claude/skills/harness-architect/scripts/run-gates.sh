@@ -3,19 +3,28 @@
 #
 # 사용법:  run-gates.sh <tier> [gates.tsv] [로그_디렉터리]
 #   tier          fast | feature | final
-#   gates.tsv     기본값 _workspace/harness/gates.tsv  (detect-stack.sh 산출물)
-#   로그_디렉터리  기본값 _workspace/harness/gates
+#   gates.tsv     기본값 <메인 워크트리 루트>/_workspace/harness/gates.tsv
+#   로그_디렉터리  기본값 <메인 워크트리 루트>/_workspace/harness/gates
 #
 # 종료코드: 0 = 전부 통과 (실행할 게 없어도 0) / 1 = 하나 이상 실패 / 2 = 사용법·입력 오류
 #
 # 설계 원칙: 이 스크립트의 exit code 가 "코드가 정상인가"에 대한 유일한 진실이다.
 # AI 리뷰어에게 "린트 문제 찾아봐"라고 시키지 않는다.
 # 그리고 실패 출력은 절대 잘라내지 않는다 — 잘린 스택트레이스는 잘못된 수정을 부른다.
+#
+# 경로 규칙: 게이트 **목록과 로그**는 메인 워크트리 루트에서 읽고 쓰지만, 게이트 **명령**은
+# 현재 디렉터리에서 실행한다. H2/H3 이 worktree 안에서 이 스크립트를 불렀을 때
+# 검증 대상은 worktree 의 코드이고, 산출물은 worktree 가 제거돼도 남아야 하기 때문이다.
 set -uo pipefail
 
 TIER="${1:-}"
-GATES_TSV="${2:-_workspace/harness/gates.tsv}"
-LOG_DIR="${3:-_workspace/harness/gates}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=harness-paths.sh
+. "$HERE/harness-paths.sh"
+WS="$(harness_workspace)"
+
+GATES_TSV="${2:-$WS/gates.tsv}"
+LOG_DIR="${3:-$WS/gates}"
 
 case "$TIER" in
     fast|feature|final) ;;
@@ -25,7 +34,7 @@ esac
 
 if [[ ! -f "$GATES_TSV" ]]; then
     echo "run-gates: 게이트 목록이 없습니다: $GATES_TSV" >&2
-    echo "  먼저 detect-stack.sh 를 실행해 생성하십시오." >&2
+    echo "  먼저 init-workspace.sh 를 실행해 생성하십시오 (Phase 1)." >&2
     exit 2
 fi
 

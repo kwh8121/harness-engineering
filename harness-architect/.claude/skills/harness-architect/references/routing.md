@@ -126,6 +126,9 @@ STEP 2 를 다시 본다. 이 조합에서 H1 은 거의 항상 오답이다 —
 6. 전 단위 완료 후 `integrator` dispatch — 인터페이스 불일치·의존 충돌·회귀·머지 충돌만 본다.
    **새 기능을 만들지 않는다.**
 7. `run-gates.sh feature` → `reviewer` → `run-gates.sh final` (H1 의 4~6단계와 동일).
+8. **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch 로 통합 방식을 정하고
+   1단계에서 만든 작업 공간을 정리한다. **1단계에서 worktree 를 만들었으면 이 단계는 필수다** —
+   격리를 절차에 넣었으면 해제도 절차에 있어야 한다. 상세는 아래 "작업 공간 정리" 참고.
 
 ### H3 — Orchestrator + DAG
 
@@ -145,3 +148,52 @@ H2 절차에 다음을 더한다.
 
 4. `human_gate.required` 면 `human_gate.before` 시점마다 **증거를 제시하고 멈춘다.**
    증거 = 게이트 로그 경로 + diff 통계 + 롤백 절차. 승인 없이 다음 노드로 진행하지 않는다.
+5. 정리는 H2 8단계와 같다. **Human Gate 를 통과한 뒤에 한다** — 승인 대기 중에 작업 공간을
+   치우면 사람이 증거를 확인할 트리가 사라진다.
+
+## 작업 공간 정리 (H2·H3)
+
+### 정리 시점을 정하는 것은 통합 결과다
+
+`superpowers:finishing-a-development-branch` 가 제시하는 통합 선택이 그대로 정리 조건이다.
+
+| 통합 선택 | worktree |
+|---|---|
+| 로컬 머지 + 머지 결과 게이트 통과 | **제거** |
+| PR 생성 | **보존** — PR 피드백을 그 트리에서 고친다 |
+| 유지 | **보존** |
+| 폐기 (사람이 `discard` 를 직접 입력했을 때만) | 제거 |
+
+### Linear 상태는 정리를 트리거하지 않는다
+
+추적 중이더라도 이슈·프로젝트 상태로 정리를 자동 실행하지 않는다. 두 가지 이유가 있다.
+
+- **`Canceled` 는 폐기가 아니다.** `references/linear-tracking.md` 의 상태 매핑에서 `Canceled`
+  는 "레벨 강등(H2→H1) 또는 사람이 중단"이다. H2 2단계에서 dependency-mapper 가 "실은 독립이
+  아니다"라고 보고해 H1 로 강등하는 것은 **정상 경로**이며, 그때 작업은 계속된다.
+  `Canceled` 를 정리 트리거로 삼으면 진행 중인 작업의 트리를 지운다.
+- **`Done` 은 통합보다 먼저 찍힌다.** `Done` 의 전환 조건은 "최종 게이트 통과 +
+  `verification-before-completion`" — Phase 5 의 1~2단계다. 브랜치 마무리는 4단계다.
+  `Done` 시점에 정리하면 PR 을 만들기 전에 작업 공간을 없앤다.
+
+여기에 더해 추적은 **관측 수단이지 실행 경로가 아니다.** `tracking.provider: none` 으로도
+H2/H3 은 정상 동작해야 하므로, 정리 규칙이 Linear 에 의존하면 추적을 끈 하네스에는
+정리 규칙이 아예 없는 셈이 된다.
+
+### Linear 는 정리를 **억제**하는 가드로만 쓴다
+
+`tracking.provider: linear` 일 때만, 정리 직전에 상태를 한 번 읽어 다음을 판단한다.
+
+| 읽은 상태 | 행동 |
+|---|---|
+| `In Progress` | 정리하지 않고 **경고**한다 — 아직 끝나지 않은 단위가 있다는 신호다 |
+| `Canceled` | 자동 삭제 금지. 폐기 메뉴를 **제시만** 한다 (커밋이 사라지므로 `discard` 입력 안전장치를 유지) |
+| `Done` · `In Review` | 통합 선택 결과대로 진행한다 |
+| 읽기 실패 | 한 줄로 알리고 통합 선택 결과대로 진행한다 — 추적 실패는 하네스를 멈추지 않는다 |
+
+### `_workspace/` 는 정리 대상이 아니다
+
+게이트 로그·조사 보고서·리뷰는 worktree 를 제거해도 남아야 한다. `scripts/harness-paths.sh`
+가 `_workspace` 를 **메인 워크트리 루트**로 고정하므로, worktree 안에서 `run-gates.sh` 를
+돌려도 산출물은 메인 레포에 쌓인다. `git worktree remove` 가 "modified or untracked files"
+로 거부하면 `--force` 를 쓰지 말고 무엇이 걸렸는지 사람에게 보여 준다.

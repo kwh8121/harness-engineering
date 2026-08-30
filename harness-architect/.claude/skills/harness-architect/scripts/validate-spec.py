@@ -97,6 +97,17 @@ ALLOWED_SKILLS = CONTROLLER_ONLY_SKILLS | {
 # 레벨별로 허용되는 추적 모드. H0 은 추적하지 않는다.
 LEVEL_TRACKING_MODE = {"H1": "issue", "H2": "project", "H3": "project"}
 
+# 레벨별로 controller_skills 에 반드시 있어야 하는 스킬.
+# H2/H3 은 격리된 worktree 에서 작업하므로(references/routing.md H2 1단계) 격리를 **만드는**
+# 스킬과 **해제하는** 스킬을 쌍으로 선언해야 한다. 해제를 빼면 고아 worktree 가 남고,
+# 그 안에서 만들어진 브랜치의 통합 방식도 정해지지 않은 채 하네스가 끝난다.
+LEVEL_REQUIRED_CONTROLLER_SKILLS = {
+    "H2": ("superpowers:using-git-worktrees",
+           "superpowers:finishing-a-development-branch"),
+    "H3": ("superpowers:using-git-worktrees",
+           "superpowers:finishing-a-development-branch"),
+}
+
 # 수용 기준이 테스트 통과를 요구하는지 판별할 때 쓰는 표지
 TEST_WORDS = ("테스트", "test", "spec 통과", "회귀")
 
@@ -243,6 +254,23 @@ def check_skills(spec, agent_ids, r):
     if "superpowers:verification-before-completion" not in controller:
         r.error("E-SKILL-OWNER", "controller_skills",
                 "superpowers:verification-before-completion 은 전 레벨 필수다")
+
+    # worktree 는 만들면 반드시 정리한다 — 격리와 해제는 쌍이다.
+    level = get(spec, "harness", "level")
+    for skill in LEVEL_REQUIRED_CONTROLLER_SKILLS.get(level, ()):
+        if skill not in controller:
+            r.error("E-SKILL-WORKTREE", "controller_skills",
+                    f"{level} 은 격리된 worktree 에서 작업하므로 '{skill}' 가 필수다. "
+                    "격리를 만드는 스킬과 해제하는 스킬은 쌍으로 선언한다 — "
+                    "해제를 빼면 고아 worktree 가 남고 브랜치 통합 방식이 정해지지 않는다")
+
+    # H1 은 worktree 를 만들지 않으므로 필수는 아니다. 다만 브랜치에서 작업했다면
+    # 통합 방식(머지·PR·유지)은 여전히 사람이 정해야 한다 — references/catalog.md 는
+    # 이 스킬의 적용 범위를 H1–H3 으로 적고 있다.
+    if level == "H1" and "superpowers:finishing-a-development-branch" not in controller:
+        r.warn("W-FINISHING", "controller_skills",
+               "H1 은 worktree 를 만들지 않아 필수는 아니지만, 브랜치에서 작업했다면 "
+               "superpowers:finishing-a-development-branch 로 통합 방식을 정해야 한다")
 
     if not isinstance(agent_skills, dict):
         r.error("E-SKILL-OWNER", "agent_skills", "에이전트 id → 스킬 목록 매핑이어야 한다")
@@ -484,7 +512,7 @@ def main(argv):
         import yaml
     except ImportError:
         print("검증기를 돌릴 수 없습니다: PyYAML 이 없습니다 (pip install pyyaml).\n"
-              "  설치할 수 없는 환경이면 CHECKLIST.md A-2 의 승인 게이트 항목을 손으로 확인하십시오.",
+              "  설치할 수 없는 환경이면 README 의 '승인 게이트 확인' 항목을 손으로 확인하십시오.",
               file=sys.stderr)
         return EXIT_CANNOT_RUN
 

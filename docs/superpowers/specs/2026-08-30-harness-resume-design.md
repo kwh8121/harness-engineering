@@ -111,6 +111,15 @@ state가 있다는 사실만으로는 **사용자가 그 작업을 이어가려�
 맨 위에 **눈에 띄게** 출력하고, `SKILL.md` 가 "이것이 지금 요청과 같은 작업인가"를 판단한다.
 같지 않거나 확신할 수 없으면 자동 재개하지 않고 사람에게 묻는다.
 
+**`spec_digest` 는 저장만으로 끝나지 않는다.** `_workspace/` 는 아래 `tree_digest` 에서
+제외되므로, 승인된 `spec.yaml` 이 손으로 수정돼도 HEAD·브랜치·작업 트리 지문은 전부 그대로다.
+**바뀐 계약으로 재개하는 것이 가장 위험한 실패**이므로 다음을 강제한다.
+
+- `checkpoint.py` 는 `--approved` 시 `artifacts.spec` 이 가리키는 파일을 **직접 읽어 해시한다.**
+  스킬이 digest를 계산해 넘기지 않는다 — 넘기게 하면 잊거나 틀릴 수 있다.
+- `resume-check.py` 는 같은 파일을 다시 해시해 `task.spec_digest` 와 비교한다.
+- **불일치하거나 파일이 사라졌으면 불일치(drift)로 기록하고 exit 11**로 보낸다.
+
 ### 손상된 state는 절대 덮어쓰지 않는다 (fail-closed)
 
 초안의 `load()` 는 JSON 파싱 실패·I/O 오류·미지원 schema를 전부 `blank_state()` 로 바꿨다.
@@ -130,14 +139,39 @@ state가 있다는 사실만으로는 **사용자가 그 작업을 이어가려�
 | 거부 | 이유 |
 |---|---|
 | `--approved` 가 `--phase 3` 없이 오는 경우 | 승인은 Phase 3의 산물이다 |
+| `--agents` 가 `--phase 3 --approved` 없이 오는 경우 | 에이전트 구성은 승인의 산물이다 |
+| `--agents` 가 비었거나 중복 id를 포함 | 같은 역할이 pending에 두 번 들어간다 |
 | `--agent-done X` 에서 `X` 가 `agents_pending` 에 없음 | 완료할 수 없는 것을 완료 처리한다 |
 | `X` 가 카탈로그 7종 밖 | `validate-spec.py` 의 `CATALOG` 와 같은 집합이어야 한다 |
 | `--archive` 인데 `phase != done` | 진행 중인 작업을 은퇴시킨다 |
 | 아카이브 파일명 충돌 | 기존 기록을 덮어쓴다 |
+| `--phase` 로 **번호를 낮추는** 경우 | 아래 `--replan` 으로만 한다 |
 
-**Phase 역행은 거부하지 않는다.** `references/routing.md` 의 H2 2단계는 dependency-mapper가
-"실은 독립이 아니다"라고 보고하면 **H1로 강등하고 spec을 고쳐 재승인**받게 한다. 그때 phase는
-4에서 3으로 되돌아가며 이는 정상 경로다. 역행을 막으면 설계된 강등 경로가 막힌다.
+#### Phase 역행은 `--replan` 이라는 전용 문으로만 한다
+
+`references/routing.md` 의 H2 2단계는 dependency-mapper가 "실은 독립이 아니다"라고 보고하면
+**H1로 강등하고 spec을 고쳐 재승인**받게 한다. 그때 phase는 4에서 3으로 되돌아가며 이는
+정상 경로다. **따라서 역행 자체는 막지 않는다.**
+
+그러나 맨 `--phase 3` 으로 되돌리면 이전 계약의 `approved` · `agents_*` · `gates` ·
+`review_loops_used` · `human_gate_passed` · `spec_digest` 가 **그대로 남아 새 계획으로
+흘러든다.** 이전 승인이 살아 있고 소진된 리뷰 루프가 이월된다.
+
+`--replan --level <새 레벨>` 을 두고 다음을 초기화한다.
+
+| 초기화 | 유지 |
+|---|---|
+| `approved` → false | `task.id` · `task.goal` |
+| `agents_done` · `agents_pending` → `[]` | `artifacts` |
+| `gates` → `[]` | `repo` (재계산) |
+| `review_loops_used` → 0 | |
+| `human_gate_passed` → false | |
+| `task.spec_digest` → null | |
+| `phase` → `"3"` (승인 대기) | |
+
+`gates` 를 비우는 것이 증거를 잃는 것은 아니다 — **게이트 로그 전문은 `gates/*.log` 에 그대로
+남는다.** state의 `gates` 는 "이번 계약에서 무엇을 통과했나"를 말하므로 계약이 바뀌면 비우는
+것이 맞고, `attempt` 도 새 계약 기준으로 1부터 다시 센다.
 
 ### 재개 판정
 
@@ -178,13 +212,42 @@ exit 10·11·12가 모두 같은 브리핑을 렌더링한다. 다른 것은 길
 
 ### 불일치 판정
 
-기록된 `repo` 와 현재를 비교해 **HEAD SHA · 브랜치 · worktree 존재 · 작업 트리 digest** 중
-하나라도 다르면 exit 11로 강등한다.
+기록된 `repo` 와 현재를 비교해 **HEAD SHA · 브랜치 · worktree 존재 · 작업 트리 digest**,
+그리고 **`spec_digest`** 중 하나라도 다르면 exit 11로 강등한다.
 
-`tree_digest` 는 `_workspace/` 를 제외한 `git status --porcelain` 의 sha256이다. 초안은 `dirty`
-boolean을 강등 조건에서 아예 뺐지만, 그러면 **같은 HEAD에서 일어난 unstaged 코드 변경을 놓친다.**
-자동 재개가 Phase 0~2로 좁아졌으므로 그 구간에서 하네스가 쓰는 것은 `_workspace/` 뿐이고,
-따라서 digest는 정상 동작 중에는 안정적이다 — 바뀌었다면 정말로 바깥에서 무언가 변한 것이다.
+#### `tree_digest` 는 파일 **내용** 기반이다
+
+초안은 `git status --porcelain` 의 행을 해시했다. **그것으로는 부족하다.** `git status` 는 경로와
+변경 여부만 낼 뿐 내용을 담지 않으므로, 이미 수정된 같은 파일을 다시 다르게 고쳐도 출력이
+`M a.txt` 로 동일해 digest가 바뀌지 않는다. 임시 저장소에서 재현했다 — 서로 다른 두 내용이
+같은 digest(`b2b4847c…`)를 냈다.
+
+따라서 다음을 해시한다.
+
+- **tracked 변경**: `git diff --binary HEAD` 의 전체 출력. 내용이 바뀌면 digest도 바뀐다.
+- **untracked 파일**: 정렬한 상대 경로 + 각 파일 내용의 sha256.
+
+`_workspace/` 제외는 **pathspec으로 한다** (`:(exclude)_workspace/`). 초안의 문자열 필터
+(`"_workspace/" not in line`)는 `src/my_workspace/…` 같은 무관한 경로까지 지운다.
+
+초안이 `dirty` boolean을 강등 조건에서 아예 뺀 것도 과했다. 자동 재개가 Phase 0~2로 좁아졌고
+그 구간에서 하네스가 쓰는 것은 `_workspace/` 뿐이므로, 제외만 정확하면 digest는 정상 동작 중에
+안정적이다 — 바뀌었다면 정말로 바깥에서 무언가 변한 것이다.
+
+### state 내부 구조 검증 (`validate_state`)
+
+최상위가 매핑이고 `schema_version` 이 맞아도 **내부 타입이 깨져 있으면 처리되지 않은 예외로
+죽는다.** 예를 들어 아래는 문법과 버전을 통과하지만 `drift()` 의 `recorded.get("head")` 에서
+`AttributeError` 를 낸다.
+
+```json
+{ "schema_version": 1, "phase": "2", "repo": "broken" }
+```
+
+이는 설계가 약속한 "손상된 state는 예외 없이 exit 11"을 어긴다. `validate_state(state) -> list[str]`
+을 두어 `task` · `repo` · `artifacts` · `progress` 가 매핑인지, `agents_done`/`agents_pending`/`gates`
+가 리스트이고 각 gate 항목이 매핑인지, scalar 필드의 타입이 맞는지 검사한다. 하나라도 어긋나면
+**브리핑 가능한 최소 정보와 오류 목록을 출력하고 exit 11**로 끝낸다.
 
 ### 진행 입도 — 역할 마일스톤이다
 
@@ -277,11 +340,23 @@ worktree 생성, 조사 2인 dispatch, `writing-plans`, 그리고 SDD 이후의 
 | 16 | 카탈로그 밖 agent id | 거부 |
 | 17 | pending에 없는 `--agent-done` | 거부 |
 | 18 | `--approved` 가 phase 3 없이 | 거부 |
-| 19 | **phase 4 → 3 역행** | **허용 (H2→H1 강등 경로)** |
-| 20 | `run-gates.sh` 실행 후 | `gates` 항목이 자동 추가된다 |
-| 21 | `init-workspace.sh` 실행 후 | state가 생성된다 |
-| 22 | checkpoint 실패 | 게이트 exit code는 유지하되 stderr 경고 |
-| 23 | PyYAML 없는 환경 | 재개가 정상 동작한다 |
+| 19 | 맨 `--phase` 로 번호 낮추기 | 거부 (`--replan` 으로 유도) |
+| 20 | `--replan --level H1` | 승인·에이전트·게이트·루프·Human Gate·spec_digest 초기화, phase 3 |
+| 21 | `--agents` 가 `--approved` 없이 | 거부 |
+| 22 | `--agents` 에 중복 id | 거부 |
+| 23 | **spec.yaml 내용 변경 후 재개** | **exit 11 — spec_digest 불일치** |
+| 24 | **spec.yaml 삭제 후 재개** | **exit 11** |
+| 25 | spec.yaml 그대로 | 기존 판정 유지 |
+| 26 | **이미 수정된 파일을 다시 다르게 수정** | **exit 11 — 내용 기반 tree_digest** |
+| 27 | `src/my_workspace/x` 변경 | 강등한다 (`_workspace/` pathspec 제외에 걸리지 않는다) |
+| 28 | **`repo: "broken"`** | **exit 11 — 예외로 죽지 않는다** |
+| 29 | **`progress: []`** | **exit 11** |
+| 30 | **`gates: [null]`** | **exit 11** |
+| 31 | `run-gates.sh` 실행 후 | `gates` 항목이 자동 추가된다 |
+| 32 | `init-workspace.sh` 실행 후 | state가 생성된다 |
+| 33 | checkpoint 실패 | 게이트 exit code는 유지하되 stderr 경고 |
+| 34 | `os.replace` 직전 예외 | 기존 state가 그대로 유지된다 (선택) |
+| 35 | PyYAML 없는 환경 | 재개가 정상 동작한다 |
 
 **동시 writer는 지원하지 않는다.** 하네스는 구현 워커의 동시 dispatch를 금지하므로 state를 쓰는
 주체는 항상 하나다. 이 전제를 불변식으로 명시하고, 위반 시 동작은 정의하지 않는다.

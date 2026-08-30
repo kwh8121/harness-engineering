@@ -158,8 +158,13 @@ Expected: FAIL — `--print` 이 아무것도 출력하지 않는다.
 # 하는 유일한 목적이다 — 계산 로직의 진실의 원천은 이 파일 하나로 유지한다.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-}" in
-        --print) harness_workspace ;;
-        *) echo "usage: harness-paths.sh --print  (그 외에는 source 해서 쓴다)" >&2; exit 2 ;;
+        --print)      harness_workspace ;;
+        # artifacts 에 상대 경로로 적힌 산출물(spec.yaml 등)을 두 스크립트가 같은
+        # 기준으로 해석하도록 루트도 낸다. HARNESS_WORKSPACE 로 워크스페이스만
+        # 옮긴 경우에도 루트는 여전히 메인 워크트리다.
+        --print-root) harness_root ;;
+        *) echo "usage: harness-paths.sh --print|--print-root  (그 외에는 source 해서 쓴다)" >&2
+           exit 2 ;;
     esac
 fi
 ```
@@ -349,16 +354,28 @@ def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def workspace():
-    """_workspace/harness 의 절대 경로. 계산의 진실의 원천은 harness-paths.sh 하나다."""
+def _paths(flag):
+    """경로 계산의 진실의 원천은 harness-paths.sh 하나다 — 여기서 복제하지 않는다."""
     out = subprocess.run(
-        ["bash", os.path.join(HERE, "harness-paths.sh"), "--print"],
+        ["bash", os.path.join(HERE, "harness-paths.sh"), flag],
         capture_output=True, text=True,
     )
     if out.returncode != 0 or not out.stdout.strip():
-        print("checkpoint: 워크스페이스 경로를 구하지 못했습니다", file=sys.stderr)
+        print(f"checkpoint: 경로를 구하지 못했습니다 ({flag})", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     return out.stdout.strip()
+
+
+def workspace():
+    return _paths("--print")
+
+
+def resolve(rel):
+    """artifacts 에 상대 경로로 적힌 산출물을 메인 워크트리 기준으로 푼다.
+    linked worktree 안에서 재개해도 같은 파일을 가리켜야 한다."""
+    if not rel:
+        return None
+    return rel if os.path.isabs(rel) else os.path.join(_paths("--print-root"), rel)
 
 
 def git(*args):
@@ -366,18 +383,55 @@ def git(*args):
     return r.stdout if r.returncode == 0 else None
 
 
-def tree_digest():
-    """_workspace/ 를 뺀 작업 트리 상태의 지문.
+EXCLUDE_WS = ":(exclude)_workspace/"
 
-    dirty boolean 으로는 같은 HEAD 에서 일어난 unstaged 변경을 구분할 수 없다.
-    _workspace/ 를 빼는 이유는 하네스 자신의 기록이 지문을 흔들면 안 되기 때문이다.
+
+def file_digest(path):
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+    except OSError:
+        return "unreadable"
+    return h.hexdigest()
+
+
+def tree_digest():
+    """_workspace/ 를 뺀 작업 트리 **내용**의 지문.
+
+    git status --porcelain 의 행만 해시하면 부족하다. status 는 경로와 변경 여부만
+    낼 뿐 내용을 담지 않으므로, 이미 수정된 같은 파일을 다시 다르게 고쳐도 출력이
+    'M a.txt' 로 같아 digest 가 바뀌지 않는다(임시 저장소에서 재현됨).
+
+    그래서 tracked 변경은 diff 본문을, untracked 는 경로와 파일 내용을 해시한다.
+    _workspace/ 제외는 pathspec 으로 한다 — 문자열 필터는 src/my_workspace/ 같은
+    무관한 경로까지 지운다.
     """
-    porcelain = git("status", "--porcelain")
-    if porcelain is None:
+    diff = git("diff", "--binary", "HEAD", "--", ".", EXCLUDE_WS)
+    if diff is None:
         return None
-    lines = [ln for ln in porcelain.splitlines() if "_workspace/" not in ln]
-    body = "\n".join(sorted(lines))
-    return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+    untracked = git("ls-files", "--others", "--exclude-standard", "--", ".", EXCLUDE_WS) or ""
+
+    h = hashlib.sha256()
+    h.update(diff.encode("utf-8", "surrogateescape"))
+    for rel in sorted(untracked.split("\n")):
+        if not rel:
+            continue
+        h.update(b"\0U\0")
+        h.update(rel.encode("utf-8", "surrogateescape"))
+        h.update(file_digest(rel).encode("ascii"))
+    return "sha256:" + h.hexdigest()
+
+
+def spec_digest(spec_path):
+    """승인된 spec.yaml 의 지문. 파일이 없으면 None 이 아니라 표식을 낸다 —
+    '기록된 적 없음'과 '있었는데 사라졌음'은 다르게 다뤄야 한다."""
+    if not spec_path:
+        return None
+    if not os.path.isfile(spec_path):
+        return "missing"
+    return "sha256:" + file_digest(spec_path)
 
 
 def repo_fingerprint():
@@ -482,6 +536,13 @@ def main():
         return EXIT_CORRUPT
 
     if args.phase is not None:
+        # 역행은 --replan 으로만 한다. 맨 --phase 로 되돌리면 이전 계약의 승인과
+        # 진행이 그대로 남는다 — 무엇을 초기화할지 아무도 정하지 않은 상태가 된다.
+        old, new = state.get("phase"), args.phase
+        if old not in (None, "done") and new != "done" \
+                and str(new).isdigit() and str(old).isdigit() and int(new) < int(old):
+            p.error(f"phase 역행({old}→{new})은 --replan 으로 하십시오 "
+                    "(승인·진행 초기화 계약이 붙어 있습니다)")
         state["phase"] = args.phase
     if args.level is not None:
         state["level"] = args.level
@@ -529,7 +590,10 @@ os.replace 로 원자적으로 쓰고, 손상된 state 는 손대지 않고 exit
   - `--approved --agents a,b` — **`--phase 3` 과 함께여야 한다**
   - `--agent-done <id>` — `agents_pending` 에 있고 카탈로그 안인 id만
   - `--gate <tier>:<exit> [--log-path <path>]` — `attempt` 는 tier별로 자동 증가
-  - `--review-loop` · `--human-gate-passed` · `--artifact <key>=<path>` · `--spec-digest <sha>`
+  - `--review-loop` · `--human-gate-passed` · `--artifact <key>=<path>`
+  - `--approved` 시 `artifacts.spec` 파일을 직접 읽어 `task.spec_digest` 를 채운다
+  - `--replan --level <새 레벨>` — 승인·에이전트·게이트·루프·Human Gate·spec_digest 초기화, `phase` → `"3"`
+  - 맨 `--phase` 로 번호를 낮추면 거부하고 `--replan` 으로 유도한다
   - `--archive` — **`phase == done` 일 때만.** 파일명 충돌 시 접미사를 붙인다
 
 - [ ] **Step 1: 실패하는 테스트를 덧붙인다**
@@ -578,9 +642,30 @@ assert_eq "2" "$(jq_ 'd["progress"]["review_loops_used"]')" "리뷰 루프를 �
 python3 "$CP" --human-gate-passed
 assert_eq "True" "$(jq_ 'd["progress"]["human_gate_passed"]')" "Human Gate 통과를 기록한다"
 
-# 14. phase 역행은 허용한다 (H2→H1 강등이 정상 경로다)
-python3 "$CP" --phase 4; python3 "$CP" --phase 3; rc=$?
-assert_exit_code 0 "$rc" "phase 역행을 허용한다 (강등 경로)"
+# 14. 맨 phase 역행은 거부하고 --replan 으로 유도한다
+python3 "$CP" --phase 4
+python3 "$CP" --phase 3 2>/dev/null
+assert_exit_code 2 "$?" "맨 --phase 역행을 거부한다"
+
+# 14b. --replan 은 승인·진행을 초기화하고 phase 3 으로 되돌린다 (H2→H1 강등 경로)
+python3 "$CP" --replan --level H1; assert_exit_code 0 "$?" "--replan 은 성공한다"
+assert_eq "3"     "$(jq_ 'd["phase"]')"   "phase 를 3 으로 되돌린다"
+assert_eq "H1"    "$(jq_ 'd["level"]')"   "새 레벨을 기록한다"
+assert_eq "False" "$(jq_ 'd["approved"]')" "이전 승인을 초기화한다"
+assert_eq "0" "$(jq_ 'len(d["progress"]["gates"])')"        "게이트를 비운다"
+assert_eq "0" "$(jq_ 'd["progress"]["review_loops_used"]')" "리뷰 루프를 초기화한다"
+assert_eq "0" "$(jq_ 'len(d["progress"]["agents_pending"])')" "에이전트 목록을 비운다"
+assert_eq "False" "$(jq_ 'd["progress"]["human_gate_passed"]')" "Human Gate 를 초기화한다"
+assert_eq "None"  "$(jq_ 'd["task"]["spec_digest"]')" "spec 지문을 초기화한다"
+assert_eq "$tid"  "$(jq_ 'd["task"]["id"]')" "task.id 는 유지한다 (같은 작업이다)"
+
+# 14c. --agents 는 --phase 3 --approved 와 함께여야 하고 중복을 거부한다
+python3 "$CP" --agents implementer,reviewer 2>/dev/null
+assert_exit_code 2 "$?" "--agents 단독 사용을 거부한다"
+python3 "$CP" --phase 3 --approved --agents implementer,implementer 2>/dev/null
+assert_exit_code 2 "$?" "--agents 중복 id 를 거부한다"
+python3 "$CP" --phase 3 --approved --agents "" 2>/dev/null
+assert_exit_code 2 "$?" "빈 --agents 를 거부한다"
 
 # 15. archive 는 done 일 때만
 python3 "$CP" --archive 2>/dev/null
@@ -621,9 +706,13 @@ Expected: FAIL — `--approved` 등이 인식되지 않아 argparse가 exit 2로
     p.add_argument("--review-loop", action="store_true", dest="review_loop")
     p.add_argument("--human-gate-passed", action="store_true", dest="human_gate")
     p.add_argument("--artifact", action="append", default=[], help="key=path")
-    p.add_argument("--spec-digest", dest="spec_digest")
     p.add_argument("--archive", action="store_true")
+    p.add_argument("--replan", action="store_true",
+                   help="계약을 다시 만든다 — 승인·진행을 초기화하고 phase 3 으로 되돌린다")
 ```
+
+`--spec-digest` 는 두지 않는다. 스킬이 해시를 계산해 넘기게 하면 잊거나 틀릴 수 있으므로
+`--approved` 시 `checkpoint.py` 가 `artifacts.spec` 파일을 **직접 읽어 해시한다.**
 
 `main()` 에서 `state, err = load(path)` 직후, `--archive` 를 먼저 처리한다.
 
@@ -646,19 +735,44 @@ Expected: FAIL — `--approved` 등이 인식되지 않아 argparse가 exit 2로
 ```python
     prog = state["progress"]
 
+    # --replan: 계약을 다시 만든다. 맨 --phase 로 역행하면 이전 계약의 승인·진행이
+    # 그대로 남아 새 계획으로 흘러든다(이전 승인이 살아 있고 리뷰 루프가 이월된다).
+    # 게이트를 비워도 증거를 잃지 않는다 — 로그 전문은 gates/*.log 에 그대로 있다.
+    if args.replan:
+        if args.phase is not None:
+            p.error("--replan 은 --phase 와 함께 쓰지 않습니다 (항상 phase 3 으로 갑니다)")
+        state["approved"] = False
+        state["phase"] = "3"
+        state["task"]["spec_digest"] = None
+        prog["agents_done"] = []
+        prog["agents_pending"] = []
+        prog["gates"] = []
+        prog["review_loops_used"] = 0
+        prog["human_gate_passed"] = False
+
     if args.approved:
         # 승인은 Phase 3 의 산물이다. 다른 Phase 에서 세우면 재개 시 이전 승인이
         # 실행 권한으로 되살아나는 경로가 열린다.
         if args.phase != "3":
             p.error("--approved 는 --phase 3 과 함께 써야 합니다")
         state["approved"] = True
+        # spec 지문은 스킬이 아니라 여기서 계산한다 — 넘기게 하면 잊거나 틀린다.
+        # _workspace/ 는 tree_digest 에서 제외되므로 이 지문이 없으면 승인된 계약이
+        # 손으로 바뀌어도 재개가 알아채지 못한다.
+        state["task"]["spec_digest"] = spec_digest(resolve(state["artifacts"].get("spec")))
     if args.agents is not None:
+        # 에이전트 구성은 승인의 산물이다.
+        if not (args.approved and args.phase == "3"):
+            p.error("--agents 는 --phase 3 --approved 와 함께 써야 합니다")
         ids = [a for a in args.agents.split(",") if a]
+        if not ids:
+            p.error("--agents 가 비었습니다")
+        dup = sorted({x for x in ids if ids.count(x) > 1})
+        if dup:
+            p.error(f"--agents 에 중복된 id: {dup}")
         unknown = sorted(set(ids) - CATALOG)
         if unknown:
             p.error(f"카탈로그 7종에 없는 에이전트: {unknown} (가능: {sorted(CATALOG)})")
-        # 승인 시점에 스킬이 넘긴다. spec.yaml 을 직접 읽지 않는 이유는 PyYAML 이
-        # 선택 의존이기 때문이다 — 재개는 PyYAML 없이도 동작해야 한다.
         prog["agents_pending"] = ids
         prog["agents_done"] = []
     if args.agent_done:
@@ -810,7 +924,9 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from checkpoint import repo_fingerprint, SCHEMA_VERSION      # noqa: E402
+from checkpoint import (                                     # noqa: E402
+    repo_fingerprint, resolve, spec_digest, SCHEMA_VERSION,
+)
 
 EXIT_NONE, EXIT_AUTO, EXIT_HUMAN, EXIT_DONE = 0, 10, 11, 12
 AUTO_MAX_PHASE = 2
@@ -829,7 +945,32 @@ def workspace():
     return out.stdout.strip()
 
 
-def drift(recorded, current):
+def validate_state(state):
+    """state 내부 구조를 검사한다. 최상위가 매핑이고 schema_version 이 맞아도 내부
+    타입이 깨져 있으면 drift()·render() 가 처리되지 않은 예외로 죽는다 — 예를 들어
+    {"repo": "broken"} 은 recorded.get() 에서 AttributeError 를 낸다. 설계가 약속한
+    '손상된 state 는 예외 없이 exit 11'을 지키려면 여기서 먼저 걸러야 한다."""
+    errs = []
+    for key in ("task", "repo", "artifacts", "progress"):
+        if not isinstance(state.get(key, {}), dict):
+            errs.append(f"{key} 가 매핑이 아닙니다 ({type(state.get(key)).__name__})")
+    if not isinstance(state.get("phase", ""), str):
+        errs.append("phase 가 문자열이 아닙니다")
+    prog = state.get("progress")
+    if isinstance(prog, dict):
+        for key in ("agents_done", "agents_pending", "gates"):
+            if not isinstance(prog.get(key, []), list):
+                errs.append(f"progress.{key} 가 리스트가 아닙니다")
+        for i, g in enumerate(prog.get("gates") or []):
+            if not isinstance(g, dict):
+                errs.append(f"progress.gates[{i}] 가 매핑이 아닙니다")
+        for key in ("review_loops_used",):
+            if not isinstance(prog.get(key, 0), int):
+                errs.append(f"progress.{key} 가 정수가 아닙니다")
+    return errs
+
+
+def drift(recorded, current, state):
     """자동 재개를 막을 불일치만 낸다."""
     out = []
     for key, label in (("head", "HEAD"), ("branch", "브랜치")):
@@ -842,6 +983,16 @@ def drift(recorded, current):
     was_dg, now_dg = recorded.get("tree_digest"), current.get("tree_digest")
     if was_dg and now_dg and was_dg != now_dg:
         out.append("작업 트리 변경됨 (_workspace 제외)")
+
+    # 승인된 계약 자체가 바뀌었는가. _workspace/ 는 tree_digest 에서 제외되므로
+    # 이 검사가 없으면 spec.yaml 변조가 어떤 지문에도 잡히지 않는다.
+    was_spec = (state.get("task") or {}).get("spec_digest")
+    if was_spec:
+        now_spec = spec_digest(resolve((state.get("artifacts") or {}).get("spec")))
+        if now_spec == "missing":
+            out.append("승인된 spec.yaml 이 없습니다")
+        elif now_spec != was_spec:
+            out.append("승인된 spec.yaml 이 변경되었습니다")
     return out
 
 
@@ -899,12 +1050,21 @@ def main():
         print(f"  파일: {path}")
         return EXIT_HUMAN
 
+    errs = validate_state(state)
+    if errs:
+        print("[재개] state 내부 구조가 손상됐습니다")
+        print(f"  파일: {path}")
+        for e in errs:
+            print(f"  - {e}")
+        print("  추측으로 복구하지 않습니다. 내용을 확인하고 이어갈지 결정하십시오.")
+        return EXIT_HUMAN
+
     phase = str(state.get("phase", "0"))
     if phase == "done":
         render(state, [], path)
         return EXIT_DONE
 
-    marks = drift(state.get("repo") or {}, repo_fingerprint())
+    marks = drift(state.get("repo") or {}, repo_fingerprint(), state)
     try:
         numeric = int(phase)
     except ValueError:
@@ -1002,6 +1162,56 @@ assert_contains "$(sed -n '3p' <<< "$brief")" "다음 할 일" "셋째 줄은 �
 if [[ "$brief" == *"불일치"* ]]; then
     echo "FAIL: 불일치가 없는데 불일치 행을 냈다"; FAILURES=$((FAILURES+1))
 else echo "PASS: 불일치가 없으면 그 행을 내지 않는다"; fi
+
+# 14. tree_digest 는 내용 기반이다 — 이미 수정된 파일을 다시 다르게 고쳐도 잡는다
+#     (git status --porcelain 만 해시하면 둘 다 'M a.txt' 라 놓친다)
+rm -f "$STATE"
+echo "first change" > "$TMP/repo/a.txt"
+(cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
+assert_eq "10" "$(run)" "같은 내용이면 자동 재개 후보"
+echo "second different change" > "$TMP/repo/a.txt"
+assert_eq "11" "$(run)" "이미 수정된 파일을 다시 고치면 강등한다"
+git -C "$TMP/repo" checkout -- a.txt
+
+# 15. _workspace 제외는 pathspec 이다 — 유사 경로까지 지우지 않는다
+rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
+mkdir -p "$TMP/repo/src/my_workspace"; echo x > "$TMP/repo/src/my_workspace/f.txt"
+assert_eq "11" "$(run)" "src/my_workspace 변경은 강등한다 (_workspace 와 다르다)"
+rm -rf "$TMP/repo/src"
+
+# 16. spec_digest — 승인된 계약이 바뀌면 강등한다
+rm -f "$STATE"
+mkdir -p "$TMP/repo/_workspace/harness"
+printf 'harness_version: 1\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+(cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g" \
+    --artifact spec=_workspace/harness/spec.yaml)
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer)
+assert_eq "11" "$(run)" "Phase 3 은 그 자체로 사람 판단"
+brief="$(cd "$TMP/repo" && python3 "$CHECK")"
+if [[ "$brief" == *"spec.yaml 이 변경"* ]]; then
+    echo "FAIL: 바뀌지 않았는데 변경으로 봤다"; FAILURES=$((FAILURES+1))
+else echo "PASS: spec 이 그대로면 불일치로 보지 않는다"; fi
+
+printf 'harness_version: 1\nlevel: tampered\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+brief="$(cd "$TMP/repo" && python3 "$CHECK")"
+assert_contains "$brief" "spec.yaml 이 변경되었습니다" "spec 내용 변경을 불일치로 낸다"
+
+rm -f "$TMP/repo/_workspace/harness/spec.yaml"
+brief="$(cd "$TMP/repo" && python3 "$CHECK")"
+assert_contains "$brief" "spec.yaml 이 없습니다" "spec 삭제를 불일치로 낸다"
+rm -rf "$TMP/repo/_workspace"
+
+# 17. 내부 구조 손상 — 처리되지 않은 예외로 죽지 않는다
+for broken in '{"schema_version":1,"phase":"2","repo":"broken"}' \
+              '{"schema_version":1,"phase":"2","progress":[]}' \
+              '{"schema_version":1,"phase":"2","progress":{"gates":[null]}}'; do
+    printf '%s' "$broken" > "$STATE"
+    out="$(cd "$TMP/repo" && python3 "$CHECK" 2>&1)"; rc=$?
+    assert_exit_code 11 "$rc" "내부 손상 state 는 exit 11: ${broken:0:44}"
+    if [[ "$out" == *"Traceback"* ]]; then
+        echo "FAIL: 처리되지 않은 예외가 났다"; FAILURES=$((FAILURES+1))
+    else echo "PASS: 예외 없이 브리핑한다"; fi
+done
 ```
 
 - [ ] **Step 2: 실패를 확인한다**
@@ -1295,7 +1505,12 @@ Expected: 출력 없음
 |---|---|
 | 자동 재개 상한 Phase 2 · 승인 부활 금지 | Task 5(`AUTO_MAX_PHASE`), Task 5 테스트 3, Task 8 Step 1·3 |
 | 상태 파일 위치·JSON·스키마 | Task 3 |
-| `task.id`/`goal`/`spec_digest` | Task 3(발급·goal), Task 4(`--spec-digest`), Task 8 Step 1(동일성 판단) |
+| `task.id`/`goal` | Task 3(발급·goal), Task 8 Step 1(의미 동일성 판단) |
+| `spec_digest` 계산·저장·재검증 | Task 3(`spec_digest()`), Task 4(`--approved` 시 자동 계산), Task 5(`drift` 비교), Task 6 테스트 16 |
+| 내용 기반 `tree_digest` · pathspec 제외 | Task 3(`tree_digest()`), Task 6 테스트 14·15 |
+| `validate_state` 내부 구조 검증 | Task 5, Task 6 테스트 17 |
+| `--replan` reset 계약 | Task 4(구현·테스트 14b), 설계 전이표 |
+| `--agents` 조건·중복 거부 | Task 4 테스트 14c |
 | 손상 state fail-closed | Task 3 테스트 6·7, Task 7 테스트(원본 보존) |
 | 상태 전이 불변식 | Task 4 테스트 9~16 |
 | phase 역행 허용 | Task 4 테스트 14 |

@@ -479,7 +479,10 @@ def load(path):
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
+    # ValueError 로 잡는다 — JSONDecodeError 와 UnicodeDecodeError 가 모두 그 하위다.
+    # JSONDecodeError 만 잡으면 비-UTF-8 바이트로 손상된 state 에서 traceback 과 함께
+    # exit 1 이 나가 fail-closed 계약(exit 3)이 깨진다.
+    except (ValueError, OSError) as e:
         return None, f"state 를 읽을 수 없습니다: {e}"
     if not isinstance(data, dict):
         return None, "state 가 매핑이 아닙니다"
@@ -1037,7 +1040,10 @@ def main():
     try:
         with open(path, encoding="utf-8") as f:
             state = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
+    # ValueError 로 잡는다 — JSONDecodeError 와 UnicodeDecodeError 가 모두 그 하위다.
+    # JSONDecodeError 만 잡으면 비-UTF-8 바이트로 손상된 state 에서 traceback 과 함께
+    # exit 1 이 나가고, exit code 로 판정하는 호출부가 '손상'을 알아채지 못한다.
+    except (ValueError, OSError) as e:
         print(f"[재개] state 를 읽을 수 없습니다: {e}")
         print(f"  파일: {path}")
         print("  추측으로 복구하지 않습니다. 내용을 확인하고 이어갈지 결정하십시오.")

@@ -70,4 +70,106 @@ assert_eq "no" "$(no_traceback)" "artifacts 값 오류에 traceback 이 없다"
 python3 -c "import json,sys;json.dump({'schema_version':1,'phase':'-1'},open(sys.argv[1],'w'))" "$STATE"
 assert_eq "11" "$(run)" "음수 phase 는 자동 재개하지 않는다 (11)"
 
+# 8. HEAD 변경 → 강등
+rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --level H1 --goal "g")
+echo more >> "$TMP/repo/a.txt"; git -C "$TMP/repo" add -A; git -C "$TMP/repo" commit -qm second
+assert_eq "11" "$(run)" "HEAD 가 바뀌면 Phase 2 라도 강등"
+
+# 9. 브랜치 변경 → 강등
+rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
+git -C "$TMP/repo" checkout -q -b other
+assert_eq "11" "$(run)" "브랜치가 바뀌면 강등"
+git -C "$TMP/repo" checkout -q -
+
+# 10. worktree 제거 → 강등
+rm -f "$STATE"
+git -C "$TMP/repo" worktree add -q "$TMP/repo/.worktrees/w" -b wbranch
+(cd "$TMP/repo/.worktrees/w" && python3 "$CP" --phase 2 --goal "g")
+git -C "$TMP/repo" worktree remove --force "$TMP/repo/.worktrees/w"
+assert_eq "11" "$(run)" "worktree 가 제거되면 강등"
+
+# 11. 같은 HEAD 에서 작업 트리 변경 → 강등 (tree_digest)
+rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
+echo scratch > "$TMP/repo/untracked.txt"
+assert_eq "11" "$(run)" "같은 HEAD 라도 작업 트리가 바뀌면 강등"
+rm -f "$TMP/repo/untracked.txt"
+assert_eq "10" "$(run)" "되돌리면 다시 자동 재개 후보"
+
+# 12. _workspace 변경은 지문을 흔들지 않는다
+mkdir -p "$TMP/repo/_workspace/harness"; echo x > "$TMP/repo/_workspace/harness/noise.txt"
+assert_eq "10" "$(run)" "_workspace 변경은 강등하지 않는다"
+rm -rf "$TMP/repo/_workspace"
+
+# 13. 브리핑 규격
+rm -f "$STATE"
+(cd "$TMP/repo" && python3 "$CP" --phase 2 --level H2 --goal "업로드 API 를 S3 로 이관" \
+    --next "implementer dispatch — 단위 2/3")
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer)
+(cd "$TMP/repo" && python3 "$CP" --agent-done implementer --gate fast:0)
+brief="$(cd "$TMP/repo" && python3 "$CHECK")"
+assert_contains "$brief" "[재개]"   "재개 헤더를 낸다"
+assert_contains "$brief" "H2"       "레벨을 낸다"
+assert_contains "$brief" "업로드 API 를 S3 로 이관" "task.goal 을 낸다"
+assert_contains "$brief" "implementer dispatch — 단위 2/3" "next_action 을 낸다"
+assert_contains "$brief" "reviewer" "남은 에이전트를 낸다"
+assert_contains "$brief" "fast"     "실행한 게이트를 낸다"
+assert_contains "$brief" "이전 세션에서 승인됨" "승인은 사실로만 표시한다"
+
+assert_contains "$(sed -n '2p' <<< "$brief")" "작업:"      "둘째 줄은 작업이다"
+assert_contains "$(sed -n '3p' <<< "$brief")" "다음 할 일" "셋째 줄은 다음 할 일이다"
+
+if [[ "$brief" == *"불일치"* ]]; then
+    echo "FAIL: 불일치가 없는데 불일치 행을 냈다"; FAILURES=$((FAILURES+1))
+else echo "PASS: 불일치가 없으면 그 행을 내지 않는다"; fi
+
+# 14. tree_digest 는 내용 기반이다 — 이미 수정된 파일을 다시 다르게 고쳐도 잡는다
+#     (git status --porcelain 만 해시하면 둘 다 'M a.txt' 라 놓친다)
+rm -f "$STATE"
+echo "first change" > "$TMP/repo/a.txt"
+(cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
+assert_eq "10" "$(run)" "같은 내용이면 자동 재개 후보"
+echo "second different change" > "$TMP/repo/a.txt"
+assert_eq "11" "$(run)" "이미 수정된 파일을 다시 고치면 강등한다"
+git -C "$TMP/repo" checkout -- a.txt
+
+# 15. _workspace 제외는 pathspec 이다 — 유사 경로까지 지우지 않는다
+rm -f "$STATE"; (cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g")
+mkdir -p "$TMP/repo/src/my_workspace"; echo x > "$TMP/repo/src/my_workspace/f.txt"
+assert_eq "11" "$(run)" "src/my_workspace 변경은 강등한다 (_workspace 와 다르다)"
+rm -rf "$TMP/repo/src"
+
+# 16. spec_digest — 승인된 계약이 바뀌면 강등한다
+rm -f "$STATE"
+mkdir -p "$TMP/repo/_workspace/harness"
+printf 'harness_version: 1\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+(cd "$TMP/repo" && python3 "$CP" --phase 2 --goal "g" \
+    --artifact spec=_workspace/harness/spec.yaml)
+(cd "$TMP/repo" && python3 "$CP" --phase 3 --approved --agents implementer,reviewer)
+assert_eq "11" "$(run)" "Phase 3 은 그 자체로 사람 판단"
+brief="$(cd "$TMP/repo" && python3 "$CHECK")"
+if [[ "$brief" == *"spec.yaml 이 변경"* ]]; then
+    echo "FAIL: 바뀌지 않았는데 변경으로 봤다"; FAILURES=$((FAILURES+1))
+else echo "PASS: spec 이 그대로면 불일치로 보지 않는다"; fi
+
+printf 'harness_version: 1\nlevel: tampered\n' > "$TMP/repo/_workspace/harness/spec.yaml"
+brief="$(cd "$TMP/repo" && python3 "$CHECK")"
+assert_contains "$brief" "spec.yaml 이 변경되었습니다" "spec 내용 변경을 불일치로 낸다"
+
+rm -f "$TMP/repo/_workspace/harness/spec.yaml"
+brief="$(cd "$TMP/repo" && python3 "$CHECK")"
+assert_contains "$brief" "spec.yaml 이 없습니다" "spec 삭제를 불일치로 낸다"
+rm -rf "$TMP/repo/_workspace"
+
+# 17. 내부 구조 손상 — 처리되지 않은 예외로 죽지 않는다
+for broken in '{"schema_version":1,"phase":"2","repo":"broken"}' \
+              '{"schema_version":1,"phase":"2","progress":[]}' \
+              '{"schema_version":1,"phase":"2","progress":{"gates":[null]}}'; do
+    printf '%s' "$broken" > "$STATE"
+    out="$(cd "$TMP/repo" && python3 "$CHECK" 2>&1)"; rc=$?
+    assert_exit_code 11 "$rc" "내부 손상 state 는 exit 11: ${broken:0:44}"
+    if [[ "$out" == *"Traceback"* ]]; then
+        echo "FAIL: 처리되지 않은 예외가 났다"; FAILURES=$((FAILURES+1))
+    else echo "PASS: 예외 없이 브리핑한다"; fi
+done
+
 report_and_exit
